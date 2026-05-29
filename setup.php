@@ -6,23 +6,23 @@ if (php_sapi_name() === 'cli') {
         $command = $argv[1];
         if ($command === 'install') {
             if ($argc < 3) {
-                echo "Error: config.json is required for install\n";
-                echo "Usage: php setup.php install <your-project-app.json>\n";
+                echo "Error: URL is required for install\n";
+                echo "Usage: php setup.php install <url>\n";
                 exit(1);
             }
-            $config_file = $argv[2];
-            create_app($config_file);
+            $url = $argv[2];
+            create_app($url);
             echo "App generated successfully.\n";
             // After generating app, ask for auth generation
             init_database();
         } elseif ($command === 'update') {
             if ($argc < 3) {
-                echo "Error: config.json is required for update\n";
-                echo "Usage: php setup.php update <your-project-app.json>\n";
+                echo "Error: URL is required for update\n";
+                echo "Usage: php setup.php update <url>\n";
                 exit(1);
             }
-            $config_file = $argv[2];
-            create_app($config_file);
+            $url = $argv[2];
+            create_app($url);
             echo "App generated successfully.\n";
             update_database();
             echo "Database updated successfully.\n";
@@ -36,13 +36,13 @@ if (php_sapi_name() === 'cli') {
                 echo "Uninstall cancelled.\n";
             }
         } else {
-            echo "Usage: php setup.php install config.json\n";
+            echo "Usage: php setup.php install <url>\n";
             echo "Usage: php setup.php init_db\n";
             echo "Usage: php setup.php update_db\n";
             echo "Usage: php setup.php uninstall\n";
         }
     } else {
-        echo "Usage: php setup.php install config.json\n";
+        echo "Usage: php setup.php install <url>\n";
         echo "Usage: php setup.php init_db\n";
         echo "Usage: php setup.php update_db\n";
         echo "Usage: php setup.php uninstall\n";
@@ -58,50 +58,29 @@ function generate_fk_constraint_name($table, $column) {
     return 'fk_' . $hash;
 }
 
-function create_app($config_file = null){
+function create_app($url = null){
 
-    $config_path = $config_file ? $config_file : 'Library/config.json';
+    if (!$url) {
+        echo "Error: URL is required.\n";
+        echo "Usage: php setup.php install <url>\n";
+        exit(1);
+    }
 
-    // Check if config_file is a URL
-    $is_url = false;
-    $config_content = null;
-    if ($config_file) {
-        $url_to_fetch = $config_file;
-        // Detect if it's a URL: starts with http://, https://, or matches host:port/path pattern
-        if (strpos($config_file, 'http://') === 0 || strpos($config_file, 'https://') === 0) {
-            $is_url = true;
-        } elseif (preg_match('/^[a-zA-Z0-9.-]+:[0-9]+\//', $config_file)) {
-            // Matches patterns like localhost:9060/path or example.com:8080/path
-            $is_url = true;
-            $url_to_fetch = 'http://' . $config_file;
-        }
+    // Auto-prepend https:// if no protocol is specified
+    $url_to_fetch = $url;
+    if (strpos($url, 'http://') !== 0 && strpos($url, 'https://') !== 0) {
+        $url_to_fetch = 'https://' . $url;
+    }
 
-        if ($is_url) {
-            $config_content = file_get_contents($url_to_fetch);
-            if ($config_content === false) {
-                echo "Error: Failed to fetch config from URL '$url_to_fetch'.\n";
-                exit(1);
-            }
-            $config = json_decode($config_content, true);
-            if ($config === null) {
-                echo "Error: Invalid JSON in config fetched from URL.\n";
-                exit(1);
-            }
-        } else {
-            // check the config file exist or not
-            if (!file_exists($config_path)) {
-                echo "Error: Config file '$config_path' not found.\n Make sure to provide a valid config file or place it in root project directory.\n";
-                exit(1);
-            }
-            $config = json_decode(file_get_contents($config_path), true);
-        }
-    } else {
-        // No config_file provided, use default Library/config.json
-        if (!file_exists($config_path)) {
-            echo "Error: Config file '$config_path' not found.\n Make sure to provide a valid config file or place it in root project directory.\n";
-            exit(1);
-        }
-        $config = json_decode(file_get_contents($config_path), true);
+    $config_content = file_get_contents($url_to_fetch);
+    if ($config_content === false) {
+        echo "Error: Failed to fetch config from URL '$url_to_fetch'.\n";
+        exit(1);
+    }
+    $config = json_decode($config_content, true);
+    if ($config === null) {
+        echo "Error: Invalid JSON in config fetched from URL.\n";
+        exit(1);
     }
 
     $object_title_list = array_keys($config['object_models']);
@@ -136,15 +115,8 @@ function create_app($config_file = null){
         }
     }
 
-    // If a custom config file/URL is provided, save it to Library/config.json
-    if ($config_file) {
-        if ($is_url) {
-            // Use the already fetched $config_content
-            file_put_contents('Library/config.json', $config_content);
-        } else {
-            copy($config_file, 'Library/config.json');
-        }
-    }
+    // Save the fetched config to Library/config.json
+    file_put_contents('Library/config.json', $config_content);
 
     $all_models = [];
     foreach ($object_models as $model_data) {
@@ -352,6 +324,9 @@ function create_app($config_file = null){
                 $model_content .= "    public function $method($params) {\n        // **\n        // custom pre-hook goes there\n        // ..\n\n        // **\n        // calling the parent function\n        \$res = parent::$parent_method($parent_call_params);\n\n        // **\n        // custom post-hook goes there\n        // ..\n\n        // **\n        // done\n        return \$res;\n    }\n\n";
             }
         }
+
+        // _get method — prebuilt, always included in every wrapper
+        $model_content .= "    public function _get(QUERYBUILDER \$queryBuilder) {\n        // set object name from parent\n        return parent::_get(\$queryBuilder);\n    }\n\n";
 
         // custom functions
         foreach($object_title_list as $object_title) {

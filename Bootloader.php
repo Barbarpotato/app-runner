@@ -120,10 +120,67 @@ class Bootloader {
                 exit;
             }
 
-            // !!! dependent on the superlindey application
+            //!!! dependent on the superlindey application
+            // get the headers x-pagination-data
+            if(isset($_SERVER['HTTP_X_PAGINATION_DATA'])){
+        
+                $pagination_data = json_decode($_SERVER['HTTP_X_PAGINATION_DATA'], true);
+
+                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
+                if (!is_array($pagination_data)) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Invalid X-Pagination-Data header format']);
+                    exit;
+                }
+
+                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
+                foreach ($pagination_data as $key => $value) {
+                    if (!is_string($key) || !is_string($value)) {
+                        http_response_code(400);
+                        echo json_encode(['error' => 'Invalid X-Pagination-Data header format']);
+                        exit;
+                    }
+                }
+
+                // the array must only contain per_page property and page_number property
+                if (!isset($pagination_data['per_page']) || !isset($pagination_data['page_number'])) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Invalid X-Pagination-Data header format']);
+                    exit;
+                }
+
+                // make sure the value of prop is number
+                if (!is_numeric($pagination_data['per_page']) || !is_numeric($pagination_data['page_number'])) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Invalid X-Pagination-Data header format']);
+                    exit;
+                }
+
+                // store the ownership data to global variable for later use
+                $GLOBALS['pagination_data'] = $pagination_data; // store the pagination data to global variables
+            } 
+
+            //!!! dependent on the superlindey application
             // get the headers x-ownership-data
             if (isset($_SERVER['HTTP_X_OWNERSHIP_DATA'])) {
                 $ownership_data = json_decode($_SERVER['HTTP_X_OWNERSHIP_DATA'], true);
+
+                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
+                if (!is_array($ownership_data)) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'Invalid X-Ownership-Data header format']);
+                    exit;
+                }
+
+                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
+                foreach ($ownership_data as $key => $value) {
+                    if (!is_string($key) || !is_string($value)) {
+                        http_response_code(400);
+                        echo json_encode(['error' => 'Invalid X-Ownership-Data header format']);
+                        exit;
+                    }
+                }
+
                 // store the ownership data to global variable for later use
                 $GLOBALS['ownership_data'] = $ownership_data; // store the ownership data to global variables
             }
