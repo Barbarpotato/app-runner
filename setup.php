@@ -67,9 +67,15 @@ function create_app($url = null){
     }
 
     // Auto-prepend https:// if no protocol is specified
+    // For localhost, do nothing - use URL as-is
     $url_to_fetch = $url;
     if (strpos($url, 'http://') !== 0 && strpos($url, 'https://') !== 0) {
-        $url_to_fetch = 'https://' . $url;
+        // Check if URL contains localhost - do NOT auto-prepend protocol
+        if (strpos($url, 'localhost') !== false || strpos($url, '127.0.0.1') !== false) {
+            $url_to_fetch = $url;
+        } else {
+            $url_to_fetch = 'https://' . $url;
+        }
     }
 
     $config_content = file_get_contents($url_to_fetch);
