@@ -1,3 +1,5 @@
 /channels*
 /Library*
 _db_config.php
+.claude*
+/agent*
