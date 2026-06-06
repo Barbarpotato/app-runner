@@ -331,8 +331,9 @@ function create_app($url = null){
             }
         }
 
-        // _get method — prebuilt, always included in every wrapper
-        $model_content .= "    public function _get(QUERYBUILDER \$queryBuilder) {\n        // set object name from parent\n        return parent::_get(\$queryBuilder);\n    }\n\n";
+        // NOTE: QUERYBUILDER support lives in the generated get() above — pass a
+        // QUERYBUILDER instance to get() and the engine drives it. No separate
+        // _get() wrapper is emitted anymore.
 
         // custom functions
         foreach($object_title_list as $object_title) {
