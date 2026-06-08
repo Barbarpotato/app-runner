@@ -139,7 +139,8 @@ Inside `get()` the engine:
 | `fk($table[, $localKey])`                   | Flat FK column expansion + join              |
 | `properties($name[, $fields])`              | Belongs-to eager load (single object)        |
 | `children($name[, $fields])`                | Has-many eager load (array)                  |
-| `ownership_data($field[, $value])`          | Write/override an ownership filter           |
+| `ownership_data($field[, $value])`          | Pin an ownership filter (must be a configured ownership field) |
+| `getOwnershipOverride($field)`              | Read a pinned ownership value, or null (engine-managed) |
 | `setObjectName($name)`                      | Set the table (engine-managed)               |
 | `setConfig($modelConfig, $jsonData)`        | Inject config for relations (engine-managed) |
 | `build()`                                   | Produce the SQL plan (pure)                  |
@@ -498,9 +499,18 @@ $GLOBALS['ownership_data'] = ['client_id' => 123];
 
 Behavior:
 
-- **Override / dedupe** — the value written here takes precedence over the engine's auto-injected
-  filter for the same field; any root-level structured condition on that field is dropped, so the
-  `WHERE` clause is never doubled.
+- **Precedence — a pin wins over the header.** Inside `get()` the engine resolves ownership from
+  `$GLOBALS['ownership_data']` (the header, already validated against the token's
+  `ownership_data_binding` in Bootloader) and injects it via `ownership_data()` **only for fields
+  the app did not pin itself**. So an explicit server-side `ownership_data('client_id', X)` in
+  channel code always wins over the header value. A pinned value is **trusted** and is _not_
+  re-validated against the binding — never pass raw client input into `ownership_data()`.
+- **Must be a configured ownership field.** The field must appear in the model's `ownership`
+  config. A non-ownership field (typo or misuse) **throws at `build()`** — the check runs there
+  because config is injected (via `setConfig()`) only after the caller finishes chaining. See
+  [Error Reference](#error-reference).
+- **Dedupe** — any root-level structured `filter()` on a field that is also pinned via
+  `ownership_data()` is dropped, so the `WHERE` clause is never doubled.
 - **Silent skip** — if no value is given _and_ `$GLOBALS['ownership_data'][<field>]` is
   absent/empty, no filter is added for that field (read paths are lenient).
 - **Outermost AND** — ownership conditions are AND-ed _outside_ the user-condition parentheses, so
@@ -559,6 +569,9 @@ This avoids "ambiguous column" errors under joins while still allowing raw expre
   into these positions.
 - **Ownership cannot be bypassed by OR** — ownership filters are AND-ed at the outermost level
   (see [Ownership](#ownership)).
+- **A pinned `ownership_data()` value is trusted** — it overrides the header value and is _not_
+  re-validated against the token's `ownership_data_binding`. Only pin server-side values; never
+  forward raw client input into it.
 
 ---
 
@@ -578,6 +591,7 @@ This avoids "ambiguous column" errors under joins while still allowing raw expre
 | Empty aggregate column                        | `Aggregate column must be a non-empty string.`                       |
 | Non-string `having_raw()`                     | `having_raw() expects a SQL string.`                                 |
 | Empty `ownership_data()` field                | `ownership_data() field name must be a non-empty string.`            |
+| Non-ownership field in `ownership_data()`     | `ownership_data(): 'X' is not an ownership field for model 'Y'`      |
 | Non-array `values()`                          | `values() expects an associative array ...`                          |
 | Non-string `children/properties/join/fk` name | `... must be a string.`                                              |
 | Unknown child relation                        | `'X' is not a child object of 'Y'.`                                  |

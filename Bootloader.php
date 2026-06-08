@@ -345,8 +345,8 @@ class Bootloader {
                 $e->getMessage(),
                 json_encode($body),
                 json_encode($_GET),
-                $endpoint,
                 $apiChannel['channel_name'],
+                $endpoint
             ]);
 
             $error_path = $e->getFile();
