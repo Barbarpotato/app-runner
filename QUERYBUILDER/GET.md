@@ -509,8 +509,10 @@ Behavior:
   config. A non-ownership field (typo or misuse) **throws at `build()`** — the check runs there
   because config is injected (via `setConfig()`) only after the caller finishes chaining. See
   [Error Reference](#error-reference).
-- **Dedupe** — any root-level structured `filter()` on a field that is also pinned via
-  `ownership_data()` is dropped, so the `WHERE` clause is never doubled.
+- **Never via `filter()`.** An ownership field used in `filter()` / `or_filter()` / a nested
+  group / or a **raw** filter **throws** at `build()` — ownership must be set through
+  `ownership_data()` so it is AND-ed at the outermost level. Allowing it in `filter()` could let
+  it sit inside a user `OR` group and bypass the scope.
 - **Silent skip** — if no value is given _and_ `$GLOBALS['ownership_data'][<field>]` is
   absent/empty, no filter is added for that field (read paths are lenient).
 - **Outermost AND** — ownership conditions are AND-ed _outside_ the user-condition parentheses, so
@@ -592,6 +594,8 @@ This avoids "ambiguous column" errors under joins while still allowing raw expre
 | Non-string `having_raw()`                     | `having_raw() expects a SQL string.`                                 |
 | Empty `ownership_data()` field                | `ownership_data() field name must be a non-empty string.`            |
 | Non-ownership field in `ownership_data()`     | `ownership_data(): 'X' is not an ownership field for model 'Y'`      |
+| Ownership field used in `filter()` (structured) | `filter(): ownership field 'X' must be set via ownership_data(), not filter().` |
+| Ownership field used in a raw `filter()`      | `filter(): ownership field 'X' must be set via ownership_data(), not a raw filter.` |
 | Non-array `values()`                          | `values() expects an associative array ...`                          |
 | Non-string `children/properties/join/fk` name | `... must be a string.`                                              |
 | Unknown child relation                        | `'X' is not a child object of 'Y'.`                                  |
@@ -620,3 +624,11 @@ This avoids "ambiguous column" errors under joins while still allowing raw expre
 (incl. OR/nested groups), aggregation and grouping, sorting, pagination, joins, FK expansion,
 eager-loaded relations, and ownership scoping — while keeping SQL assembly pure and execution in
 the hands of `_LindseyEngine`.
+
+---
+
+## See also
+
+- [../README.md](../README.md) — overview & index.
+- [SET.md](SET.md) — `set($qb)` (UPDATE / INSERT) and `data()`.
+- [DELETE.md](DELETE.md) — `delete($qb)`.
