@@ -303,7 +303,7 @@ function create_app($url = null){
         foreach ($methods as $method) {
             $params = '';
             if (strpos($method, 'set_') === 0 && $method != 'set') {
-                $params = '$id, $target_state';
+                $params = '$save_data';
             } elseif ($method == 'set') {
                 $params = '$save_data';
             } elseif ($method == 'delete') {
@@ -320,9 +320,12 @@ function create_app($url = null){
             } else {
                 // Default hook template
                 if (strpos($method, 'set_') === 0 && $method != 'set') {
-                    // State-transition methods (e.g. set_published, set_prepared) delegate to parent::change_state
+                    // State-transition methods (e.g. set_published, set_prepared) delegate to
+                    // parent::change_state with the target state derived from the method name
+                    // (set_published -> 'published'), so the wrapper only takes $save_data.
                     $parent_method = 'change_state';
-                    $parent_call_params = '$id, $target_state';
+                    $state_name = substr($method, 4); // strip the leading 'set_'
+                    $parent_call_params = "\$save_data, '$state_name'";
                 } else {
                     $parent_method = $method;
                     $parent_call_params = $params;
@@ -331,9 +334,21 @@ function create_app($url = null){
             }
         }
 
-        // NOTE: QUERYBUILDER support lives in the generated get() above — pass a
-        // QUERYBUILDER instance to get() and the engine drives it. No separate
-        // _get() wrapper is emitted anymore.
+        // QUERYBUILDER wrappers — _get / _set / _delete are emitted automatically for
+        // EVERY model. They are NOT driven by config hooks (custom_hooks) like get/set/delete
+        // above; setup.php always generates them with the default pre/post-hook template.
+        //
+        // Split of responsibilities:
+        //   get/set/delete   → the original array-based calls (and config-defined hooks). These
+        //                      reject a QUERYBUILDER: array/scalar input only.
+        //   _get/_set/_delete → the QUERYBUILDER entry points. These reject array/scalar input:
+        //                      a QUERYBUILDER instance only.
+        // Each QB wrapper delegates to the matching parent _get/_set/_delete engine method, which
+        // enforces the QUERYBUILDER-only contract.
+        $qb_methods = ['_get' => '_get', '_set' => '_set', '_delete' => '_delete'];
+        foreach ($qb_methods as $qb_method => $parent_method) {
+            $model_content .= "    public function $qb_method(\$qb) {\n        // **\n        // custom pre-hook goes there\n        // ..\n\n        // **\n        // calling the parent function\n        \$res = parent::$parent_method(\$qb);\n\n        // **\n        // custom post-hook goes there\n        // ..\n\n        // **\n        // done\n        return \$res;\n    }\n\n";
+        }
 
         // custom functions
         foreach($object_title_list as $object_title) {
