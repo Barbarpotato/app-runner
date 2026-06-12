@@ -793,13 +793,20 @@ function update_database(){
                     
                     if ($current_default === null) $current_default = '';  // Normalize
                     if ($current_default === 'current_timestamp') $current_default = 'CURRENT_TIMESTAMP';
-                    if ($desired['data_type'] === "VARCHAR(255)") $desired['data_type'] = "VARCHAR";  // Normalize
-                    if ($desired["data_type"] === "VARCHAR(1000)") $desired["data_type"] = "VARCHAR";
-                    if ($desired["data_type"] === "DECIMAL(10,2)") $desired["data_type"] = "DECIMAL";
-                    if ($desired["data_type"] === "TINYINT(1)") $desired["data_type"] = "TINYINT";
-                    
 
-                    if (strtolower($current['data_type']) !== strtolower($desired['data_type']) ||
+                    // Normalize the desired type ONLY for comparison against information_schema,
+                    // which reports data_type without the length/precision (e.g. `tinyint`, not
+                    // `tinyint(1)`). Keep $desired['data_type'] intact so the emitted DDL still
+                    // carries the explicit length — otherwise MySQL applies its default display
+                    // width (e.g. TINYINT -> tinyint(4) instead of the intended tinyint(1)).
+                    $desired_type_compare = $desired['data_type'];
+                    if ($desired_type_compare === "VARCHAR(255)") $desired_type_compare = "VARCHAR";
+                    if ($desired_type_compare === "VARCHAR(1000)") $desired_type_compare = "VARCHAR";
+                    if ($desired_type_compare === "DECIMAL(10,2)") $desired_type_compare = "DECIMAL";
+                    if ($desired_type_compare === "TINYINT(1)") $desired_type_compare = "TINYINT";
+
+
+                    if (strtolower($current['data_type']) !== strtolower($desired_type_compare) ||
                         $current['is_nullable'] !== $desired['is_nullable'] ||
                         $current_default !== $desired['column_default']) {
                             $null = $desired['is_nullable'] === 'NO' ? 'NOT NULL' : 'NULL';
