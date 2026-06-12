@@ -633,7 +633,7 @@ function update_database(){
 
     // Get columns for each table
     foreach ($current_tables as $table => &$columns) {
-        $stmt = $pdo->prepare("SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = database() AND table_name = ? ORDER BY ordinal_position");
+        $stmt = $pdo->prepare("SELECT column_name, data_type, column_type, is_nullable, column_default FROM information_schema.columns WHERE table_schema = database() AND table_name = ? ORDER BY ordinal_position");
         $stmt->execute([$table]);
         while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
             $columns[$row['column_name']] = $row;
@@ -794,19 +794,21 @@ function update_database(){
                     if ($current_default === null) $current_default = '';  // Normalize
                     if ($current_default === 'current_timestamp') $current_default = 'CURRENT_TIMESTAMP';
 
-                    // Normalize the desired type ONLY for comparison against information_schema,
-                    // which reports data_type without the length/precision (e.g. `tinyint`, not
-                    // `tinyint(1)`). Keep $desired['data_type'] intact so the emitted DDL still
-                    // carries the explicit length — otherwise MySQL applies its default display
-                    // width (e.g. TINYINT -> tinyint(4) instead of the intended tinyint(1)).
-                    $desired_type_compare = $desired['data_type'];
-                    if ($desired_type_compare === "VARCHAR(255)") $desired_type_compare = "VARCHAR";
-                    if ($desired_type_compare === "VARCHAR(1000)") $desired_type_compare = "VARCHAR";
-                    if ($desired_type_compare === "DECIMAL(10,2)") $desired_type_compare = "DECIMAL";
-                    if ($desired_type_compare === "TINYINT(1)") $desired_type_compare = "TINYINT";
+                    // Detect a type change. When the desired type carries an explicit
+                    // length/precision (e.g. TINYINT(1), VARCHAR(255), DECIMAL(10,2)) we must
+                    // compare against COLUMN_TYPE, which preserves it (so tinyint(1) vs tinyint(4)
+                    // is detectable). DATA_TYPE drops the length, so a boolean that has drifted to
+                    // tinyint(4) would otherwise never be flagged. For widthless types (BIGINT,
+                    // TEXT, DATE, ...) we keep comparing DATA_TYPE to avoid false positives from
+                    // MySQL's default integer display widths (e.g. bigint(20) on MySQL 5.x).
+                    $desired_has_width = strpos($desired['data_type'], '(') !== false;
+                    if ($desired_has_width) {
+                        $type_changed = strtolower($current['column_type']) !== strtolower($desired['data_type']);
+                    } else {
+                        $type_changed = strtolower($current['data_type']) !== strtolower($desired['data_type']);
+                    }
 
-
-                    if (strtolower($current['data_type']) !== strtolower($desired_type_compare) ||
+                    if ($type_changed ||
                         $current['is_nullable'] !== $desired['is_nullable'] ||
                         $current_default !== $desired['column_default']) {
                             $null = $desired['is_nullable'] === 'NO' ? 'NOT NULL' : 'NULL';
