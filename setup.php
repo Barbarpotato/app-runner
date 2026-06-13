@@ -446,6 +446,8 @@ function init_database(){
     $template = str_replace('<USERNAME>', $user, $template);
     $template = str_replace('<PASSWORD>', $pass, $template);
     $template = str_replace('<AUTH_DATABASE_NAME>', $auth_db, $template);
+    // Generate a fresh random secret for the setup API HMAC handshake
+    $template = str_replace('<SETUP_HMAC_SECRET>', bin2hex(random_bytes(32)), $template);
 
     // Add charset to DSN
     $template = str_replace('$dsn = "mysql:host=$host;dbname=$db;";', '$dsn = "mysql:host=$host;dbname=$db;charset=utf8mb4";', $template);
@@ -597,33 +599,12 @@ function init_database(){
     }
 }
 
-function update_database(){
-    // Check if config.json exists
-    if (!file_exists('Library/config.json')) {
-        echo "Error: Config file 'Library/config.json' not found.\n";
-        exit(1);
-    }
-
-    // Read and decode config
-    $config_content = file_get_contents('Library/config.json');
-    if ($config_content === false) {
-        echo "Error: Failed to read config file.\n";
-        exit(1);
-    }
-    $config = json_decode($config_content, true);
-    if ($config === null) {
-        echo "Error: Invalid JSON in config file.\n";
-        exit(1);
-    }
-
-    $object_models = [];
-    foreach ($config['object_models'] as $title => $models_array) {
-        $object_models = array_merge($object_models, $models_array);
-    }
-
-    // Include DB config
-    include '_db_config.php';
-
+// Compute the ordered list of DDL statements that would bring the live database
+// schema in line with the desired schema described by $object_models. Pure: it
+// reads information_schema via $pdo and RETURNS an array of SQL strings — it never
+// executes anything and never prompts. Shared by the CLI update_database() below
+// and the HTTP setup API (setup_api.php) so the diff logic lives in one place.
+function compute_schema_diff($pdo, $object_models){
     // Get current tables
     $current_tables = [];
     $stmt = $pdo->query("SELECT table_name FROM information_schema.tables WHERE table_schema = database()");
@@ -639,6 +620,7 @@ function update_database(){
             $columns[$row['column_name']] = $row;
         }
     }
+    unset($columns);
 
     // Get current foreign keys
     $current_fks = [];
@@ -769,7 +751,7 @@ function update_database(){
                     } elseif ($col['compulsory'] && in_array($col['type'], ['timestamp', 'datetime'])) {
                         $def = "DEFAULT CURRENT_TIMESTAMP";
                     }
-                    
+
                     $auto_inc = ($col_name == 'id') ? ' AUTO_INCREMENT' : '';
                     $actions[] = "ALTER TABLE `$table` ADD COLUMN `$col_name` {$col['data_type']} $null $def$auto_inc;";
                     if ($col_name == 'id') {
@@ -790,7 +772,7 @@ function update_database(){
                 if (isset($current_cols[$col_name])) {
                     $current = $current_cols[$col_name];
                     $current_default = $current['column_default'];
-                    
+
                     if ($current_default === null) $current_default = '';  // Normalize
                     if ($current_default === 'current_timestamp') $current_default = 'CURRENT_TIMESTAMP';
 
@@ -840,6 +822,39 @@ function update_database(){
             }
         }
     }
+
+    return $actions;
+}
+
+function update_database(){
+    // Check if config.json exists
+    if (!file_exists('Library/config.json')) {
+        echo "Error: Config file 'Library/config.json' not found.\n";
+        exit(1);
+    }
+
+    // Read and decode config
+    $config_content = file_get_contents('Library/config.json');
+    if ($config_content === false) {
+        echo "Error: Failed to read config file.\n";
+        exit(1);
+    }
+    $config = json_decode($config_content, true);
+    if ($config === null) {
+        echo "Error: Invalid JSON in config file.\n";
+        exit(1);
+    }
+
+    $object_models = [];
+    foreach ($config['object_models'] as $title => $models_array) {
+        $object_models = array_merge($object_models, $models_array);
+    }
+
+    // Include DB config
+    include '_db_config.php';
+
+    // Compute the schema diff (shared with the HTTP setup API in setup_api.php).
+    $actions = compute_schema_diff($pdo, $object_models);
 
     if (empty($actions)) {
         echo "No changes needed. Database is up to date.\n";

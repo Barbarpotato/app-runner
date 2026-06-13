@@ -14,6 +14,10 @@ $dsn = "mysql:host=$host;dbname=$db;";
 $auth_db = '<AUTH_DATABASE_NAME>';  // Database name
 $auth_dsn = "mysql:host=$host;dbname=$auth_db;charset=utf8mb4";
 
+// Shared secret for the HTTP setup API (setup_api.php) HMAC handshake.
+// Keep this private — anyone holding it can run schema migrations over HTTP.
+$setup_hmac_secret = '<SETUP_HMAC_SECRET>';
+
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
