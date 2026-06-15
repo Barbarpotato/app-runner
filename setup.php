@@ -1315,10 +1315,13 @@ function setup_cli_update_apply($config_url, array $args) {
         }
     }
 
-    // Regenerate app code only when the FULL plan was approved and applied cleanly.
+    // Regenerate app code when the FULL plan was approved and applied cleanly.
+    // NOTE: an EMPTY plan (schema already up-to-date) counts as fully approved
+    // (0 == 0), so code IS regenerated to keep channels/ + Library/ in sync with
+    // the latest config — that is the whole point of "apply" on an up-to-date schema.
     $code_regenerated   = false;
     $regen_note         = null;
-    $full_plan_approved = count($actions) > 0 && count($approved_ids) === count($actions);
+    $full_plan_approved = count($approved_ids) === count($actions);
     if ($full_plan_approved && $all_ok) {
         ob_start();
         create_app($config_url);
