@@ -46,6 +46,11 @@ if (php_sapi_name() === 'cli') {
         update_database();
         echo "Database updated successfully.\n";
     } elseif ($command === 'uninstall') {
+        // Non-interactive DB teardown (JSON) — used by deploy/destroy.php. Drops the
+        // instance's databases best-effort; the folder itself is removed by deploy.
+        if (isset($args['yes'])) {
+            setup_cli_destroy();
+        }
         echo "Are you sure you want to delete this project? the database will also be deleted and cannot be recovered. (y/n): ";
         $confirm = trim(fgets(STDIN));
         if (strtolower($confirm) === 'y' || strtolower($confirm) === 'yes') {
@@ -55,9 +60,9 @@ if (php_sapi_name() === 'cli') {
             echo "Uninstall cancelled.\n";
         }
     } else {
-        echo "Usage: php setup.php install <url> [--db-host=.. --db-name=.. --db-user=.. --db-pass=.. --auth-db=.. --admin-user=.. --admin-pass=..]\n";
-        echo "Usage: php setup.php update  <url> [--plan | --apply --plan-token=.. --approve=0,1,2]\n";
-        echo "Usage: php setup.php uninstall\n";
+        echo "Usage: php setup.php install   <url> [--db-host=.. --db-name=.. --db-user=.. --db-pass=.. --auth-db=.. --admin-user=.. --admin-pass=..]\n";
+        echo "Usage: php setup.php update    <url> [--plan | --apply --plan-token=.. --approve=0,1,2]\n";
+        echo "Usage: php setup.php uninstall [--yes]\n";
     }
     exit;
 }
@@ -1330,6 +1335,69 @@ function setup_cli_update_apply($config_url, array $args) {
         'applied'          => $results,
         'code_regenerated' => $code_regenerated,
         'note'             => $regen_note,
+    ]);
+}
+
+/**
+ * Extract DB credentials from _db_config.php WITHOUT including it — including the
+ * file would open PDO connections and exit(500) if a database is already gone,
+ * which would defeat an idempotent teardown. Returns ['host','db','user','pass','auth_db'].
+ */
+function setup_parse_db_config($content) {
+    $get = function ($var) use ($content) {
+        if (preg_match('/\$' . $var . "\\s*=\\s*'((?:[^'\\\\]|\\\\.)*)'/", $content, $m)) {
+            return stripcslashes($m[1]);
+        }
+        return null;
+    };
+    return [
+        'host'    => $get('host'),
+        'db'      => $get('db'),
+        'user'    => $get('user'),
+        'pass'    => $get('pass'),
+        'auth_db' => $get('auth_db'),
+    ];
+}
+
+/**
+ * Non-interactive teardown: drop the instance's business + auth databases
+ * (best-effort, DROP IF EXISTS so a missing DB is not an error). The instance
+ * folder itself is removed by the caller (deploy/destroy.php). Emits JSON + exits.
+ */
+function setup_cli_destroy() {
+    $dropped  = [];
+    $warnings = [];
+
+    if (file_exists('_db_config.php')) {
+        $cfg = setup_parse_db_config(file_get_contents('_db_config.php'));
+        if (!empty($cfg['host']) && $cfg['user'] !== null) {
+            try {
+                $pdo_temp = new PDO("mysql:host={$cfg['host']};charset=utf8mb4", $cfg['user'], $cfg['pass'] ?? '', [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                foreach (['db' => 'business', 'auth_db' => 'auth'] as $key => $label) {
+                    if (!empty($cfg[$key])) {
+                        try {
+                            $pdo_temp->exec("DROP DATABASE IF EXISTS `{$cfg[$key]}`");
+                            $dropped[] = ['name' => $cfg[$key], 'type' => $label];
+                        } catch (\Throwable $e) {
+                            $warnings[] = "Failed to drop {$label} database '{$cfg[$key]}': " . $e->getMessage();
+                        }
+                    }
+                }
+                $pdo_temp = null;
+            } catch (\Throwable $e) {
+                $warnings[] = 'Could not connect to MySQL to drop databases: ' . $e->getMessage();
+            }
+        } else {
+            $warnings[] = '_db_config.php found but DB credentials could not be parsed.';
+        }
+    } else {
+        $warnings[] = '_db_config.php not found — instance was not installed; no databases to drop.';
+    }
+
+    setup_cli_json(200, [
+        'ok'       => true,
+        'dropped'  => $dropped,
+        'warnings' => $warnings,
     ]);
 }
 
