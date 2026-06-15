@@ -2,49 +2,61 @@
 
 // CLI handling
 if (php_sapi_name() === 'cli') {
-    if ($argc > 1) {
-        $command = $argv[1];
-        if ($command === 'install') {
-            if ($argc < 3) {
-                echo "Error: URL is required for install\n";
-                echo "Usage: php setup.php install <url>\n";
-                exit(1);
-            }
-            $url = $argv[2];
-            create_app($url);
-            echo "App generated successfully.\n";
-            // After generating app, ask for auth generation
-            init_database();
-        } elseif ($command === 'update') {
-            if ($argc < 3) {
-                echo "Error: URL is required for update\n";
-                echo "Usage: php setup.php update <url>\n";
-                exit(1);
-            }
-            $url = $argv[2];
-            create_app($url);
-            echo "App generated successfully.\n";
-            update_database();
-            echo "Database updated successfully.\n";
-        } elseif ($command === 'uninstall') {
-            echo "Are you sure you want to delete this project? the database will also be deleted and cannot be recovered. (y/n): ";
-            $confirm = trim(fgets(STDIN));
-            if (strtolower($confirm) === 'y' || strtolower($confirm) === 'yes') {
-                delete_app();
-                echo "Project uninstalled successfully.\n";
-            } else {
-                echo "Uninstall cancelled.\n";
-            }
-        } else {
+    // setup.php may be invoked from another working directory — the deploy control
+    // plane runs `php <instance>/setup.php ...`. Every path below is relative to the
+    // project root where this file lives, so anchor the cwd here regardless of caller.
+    chdir(__DIR__);
+
+    $args    = setup_parse_cli_args($argv);
+    $command = $args['_'][0] ?? null;
+    $url     = $args['_'][1] ?? null;
+
+    if ($command === 'install') {
+        if (!$url) {
+            echo "Error: URL is required for install\n";
             echo "Usage: php setup.php install <url>\n";
-            echo "Usage: php setup.php init_db\n";
-            echo "Usage: php setup.php update_db\n";
-            echo "Usage: php setup.php uninstall\n";
+            exit(1);
+        }
+        // Non-interactive (headless) install when DB credentials are passed as
+        // flags — used by deploy/install.php. Prints a JSON result and exits.
+        if (isset($args['db-host'])) {
+            setup_cli_install_headless($url, $args);
+        }
+        // Interactive install (manual use).
+        create_app($url);
+        echo "App generated successfully.\n";
+        // After generating app, ask for auth generation
+        init_database();
+    } elseif ($command === 'update') {
+        if (!$url) {
+            echo "Error: URL is required for update\n";
+            echo "Usage: php setup.php update <url>\n";
+            exit(1);
+        }
+        // Non-interactive plan/apply (JSON) — used by deploy/update.php.
+        if (isset($args['plan'])) {
+            setup_cli_update_plan($url);
+        }
+        if (isset($args['apply'])) {
+            setup_cli_update_apply($url, $args);
+        }
+        // Interactive update (manual use).
+        create_app($url);
+        echo "App generated successfully.\n";
+        update_database();
+        echo "Database updated successfully.\n";
+    } elseif ($command === 'uninstall') {
+        echo "Are you sure you want to delete this project? the database will also be deleted and cannot be recovered. (y/n): ";
+        $confirm = trim(fgets(STDIN));
+        if (strtolower($confirm) === 'y' || strtolower($confirm) === 'yes') {
+            delete_app();
+            echo "Project uninstalled successfully.\n";
+        } else {
+            echo "Uninstall cancelled.\n";
         }
     } else {
-        echo "Usage: php setup.php install <url>\n";
-        echo "Usage: php setup.php init_db\n";
-        echo "Usage: php setup.php update_db\n";
+        echo "Usage: php setup.php install <url> [--db-host=.. --db-name=.. --db-user=.. --db-pass=.. --auth-db=.. --admin-user=.. --admin-pass=..]\n";
+        echo "Usage: php setup.php update  <url> [--plan | --apply --plan-token=.. --approve=0,1,2]\n";
         echo "Usage: php setup.php uninstall\n";
     }
     exit;
@@ -979,6 +991,346 @@ function delete_app() {
         unlink('_db_config.php');
         echo "Deleted '_db_config.php'.\n";
     }
+}
+
+
+// ============================================================================
+// NON-INTERACTIVE CLI HELPERS
+// ----------------------------------------------------------------------------
+// These power the headless install / plan / apply flows invoked by the deploy
+// control plane (deploy/install.php, deploy/update.php), which shell out to
+// `php <instance>/setup.php ...`. They mirror the old HTTP endpoints that used
+// to live in api/install.php and api/update.php, but emit a JSON envelope on
+// stdout (with an http_status field the deploy wrapper maps onto the response).
+// ============================================================================
+
+/**
+ * Parse argv into positional args ($args['_']) and --key[=value] flags.
+ * A bare --flag becomes (bool) true.
+ */
+function setup_parse_cli_args($argv) {
+    $args = ['_' => []];
+    foreach (array_slice($argv, 1) as $a) {
+        if (substr($a, 0, 2) === '--') {
+            $a  = substr($a, 2);
+            $eq = strpos($a, '=');
+            if ($eq === false) {
+                $args[$a] = true;
+            } else {
+                $args[substr($a, 0, $eq)] = substr($a, $eq + 1);
+            }
+        } else {
+            $args['_'][] = $a;
+        }
+    }
+    return $args;
+}
+
+/** Print a JSON envelope (http_status drives the deploy wrapper's HTTP code) and exit. */
+function setup_cli_json($status, array $payload) {
+    echo json_encode(array_merge(['http_status' => $status], $payload));
+    exit(0);
+}
+
+/** Deterministic token binding the exact ordered statement set to the secret (drift detection). */
+function setup_make_plan_token(array $actions, $secret) {
+    return hash_hmac('sha256', json_encode(array_values($actions)), $secret);
+}
+
+/**
+ * Fetch + decode config.json from a URL (mirrors create_app()'s protocol
+ * handling) and return the flattened object_models list. Emits JSON + exits on error.
+ */
+function setup_fetch_object_models($url) {
+    $url_to_fetch = $url;
+    if (strpos($url, 'http://') !== 0 && strpos($url, 'https://') !== 0) {
+        if (strpos($url, 'localhost') === false && strpos($url, '127.0.0.1') === false) {
+            $url_to_fetch = 'https://' . $url;
+        }
+    }
+    $content = @file_get_contents($url_to_fetch);
+    if ($content === false) {
+        setup_cli_json(400, ['ok' => false, 'error' => "Failed to fetch config from URL '$url_to_fetch'."]);
+    }
+    $data = json_decode($content, true);
+    if (!is_array($data) || !isset($data['object_models'])) {
+        setup_cli_json(400, ['ok' => false, 'error' => 'Fetched config is not valid JSON or is missing object_models.']);
+    }
+    $object_models = [];
+    foreach ($data['object_models'] as $models_array) {
+        $object_models = array_merge($object_models, $models_array);
+    }
+    return $object_models;
+}
+
+/** Flatten object_models (model + grouping_objects + child_objects) into a list of models with fields. */
+function setup_models_with_fields(array $object_models) {
+    $models = [];
+    foreach ($object_models as $model_data) {
+        if (isset($model_data['model']['name'], $model_data['model']['fields'])) {
+            $models[] = $model_data['model'];
+        }
+        foreach (['grouping_objects', 'child_objects'] as $bucket) {
+            if (isset($model_data[$bucket])) {
+                foreach ($model_data[$bucket] as $sub) {
+                    if (isset($sub['name'], $sub['fields'])) {
+                        $models[] = $sub;
+                    }
+                }
+            }
+        }
+    }
+    return $models;
+}
+
+/**
+ * Headless install (the old api/install.php flow). One-time use, gated on the
+ * absence of _db_config.php. Generates app code, creates the business + auth
+ * databases and admin user, writes _db_config.php with a fresh HMAC secret,
+ * creates the business tables + foreign keys, then returns the secret ONCE.
+ */
+function setup_cli_install_headless($config_url, array $args) {
+    // ONE-TIME GATE — refuse once installed.
+    if (file_exists('_db_config.php')) {
+        setup_cli_json(403, ['ok' => false, 'error' => 'Already installed (_db_config.php exists). The installer is one-time use.']);
+    }
+
+    // Required install parameters (db-pass may be an empty string).
+    $required = ['db-host', 'db-name', 'db-user', 'db-pass', 'auth-db', 'admin-user', 'admin-pass'];
+    foreach ($required as $f) {
+        if (!array_key_exists($f, $args) || $args[$f] === true) {
+            setup_cli_json(400, ['ok' => false, 'error' => "Flag --$f is required."]);
+        }
+    }
+    $host           = $args['db-host'];
+    $db             = $args['db-name'];
+    $user           = $args['db-user'];
+    $pass           = $args['db-pass'];
+    $auth_db        = $args['auth-db'];
+    $admin_username = $args['admin-user'];
+    $admin_password = $args['admin-pass'];
+
+    // Fresh secret for the setup API HMAC handshake / plan tokens — returned once below.
+    $setup_hmac_secret = bin2hex(random_bytes(32));
+
+    // Validate the config URL up front (fail before any writes).
+    $object_models = setup_fetch_object_models($config_url);
+
+    foreach (['templates/_db_config.txt', 'templates/_setup_auth.txt'] as $tpl) {
+        if (!file_exists($tpl)) {
+            setup_cli_json(500, ['ok' => false, 'error' => "Template '$tpl' not found."]);
+        }
+    }
+
+    // STEP 1 — generate app code (channels/ + Library/config.json). Swallow create_app()'s output.
+    ob_start();
+    create_app($config_url);
+    ob_end_clean();
+
+    // STEP 2 — create databases + auth user.
+    try {
+        $pdo_temp = new PDO("mysql:host=$host;charset=utf8mb4", $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $pdo_temp->exec("CREATE DATABASE IF NOT EXISTS `$db`");
+
+        $auth_sql = file_get_contents('templates/_setup_auth.txt');
+        $auth_sql = str_replace('<auth_database_name>', $auth_db, $auth_sql);
+        $auth_sql = str_replace('<admin_username>', $admin_username, $auth_sql);
+        $auth_sql = str_replace('<admin_password_hash>', password_hash($admin_password, PASSWORD_DEFAULT), $auth_sql);
+        $pdo_temp->exec($auth_sql);
+        $pdo_temp = null;
+    } catch (\Throwable $e) {
+        setup_cli_json(500, ['ok' => false, 'error' => 'Database/auth setup failed: ' . $e->getMessage()]);
+    }
+
+    // Render _db_config.php from the template.
+    $template = file_get_contents('templates/_db_config.txt');
+    $template = str_replace('<HOST>', $host, $template);
+    $template = str_replace('<DATABASE_NAME>', $db, $template);
+    $template = str_replace('<USERNAME>', $user, $template);
+    $template = str_replace('<PASSWORD>', $pass, $template);
+    $template = str_replace('<AUTH_DATABASE_NAME>', $auth_db, $template);
+    $template = str_replace('<SETUP_HMAC_SECRET>', $setup_hmac_secret, $template);
+    $template = str_replace('$dsn = "mysql:host=$host;dbname=$db;";', '$dsn = "mysql:host=$host;dbname=$db;charset=utf8mb4";', $template);
+    if (file_put_contents('_db_config.php', $template) === false) {
+        setup_cli_json(500, ['ok' => false, 'error' => 'Failed to write _db_config.php.']);
+    }
+
+    // STEP 3 — create business tables + foreign keys.
+    include '_db_config.php';   // provides $pdo (business) + $auth_pdo
+    $models         = setup_models_with_fields($object_models);
+    $tables_created = [];
+    $fk_errors      = [];
+    try {
+        // First pass: tables without FKs.
+        foreach ($models as $model) {
+            $fields_sql = [];
+            foreach ($model['fields'] as $field) {
+                $type = map_field_type($field['type']);
+                $null = $field['compulsory'] ? 'NOT NULL' : 'NULL';
+                $default = '';
+                if (isset($field['default_value']) && $field['default_value'] !== null) {
+                    if (strtoupper((string) $field['default_value']) === 'CURRENT_TIMESTAMP') {
+                        $default = 'DEFAULT CURRENT_TIMESTAMP';
+                    } elseif (is_bool($field['default_value'])) {
+                        $default = $field['default_value'] ? 'DEFAULT 1' : 'DEFAULT 0';
+                    } else {
+                        $default = "DEFAULT '" . addslashes($field['default_value']) . "'";
+                    }
+                } elseif ($field['compulsory'] && in_array($field['type'], ['timestamp', 'datetime'], true)) {
+                    $default = 'DEFAULT CURRENT_TIMESTAMP';
+                }
+                $auto_increment = ($field['name'] === 'id') ? ' AUTO_INCREMENT' : '';
+                $fields_sql[] = "`{$field['name']}` $type $null $default$auto_increment";
+            }
+            if (in_array('id', array_column($model['fields'], 'name'), true)) {
+                $fields_sql[] = 'PRIMARY KEY (`id`)';
+            }
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `{$model['name']}` (\n" . implode(",\n", $fields_sql) . "\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+            $tables_created[] = $model['name'];
+        }
+
+        // Second pass: foreign keys (after every table exists).
+        foreach ($models as $model) {
+            if (!isset($model['relations'])) {
+                continue;
+            }
+            foreach ($model['relations'] as $rel) {
+                if (($rel['type'] ?? null) !== 'belongs_to') {
+                    continue;
+                }
+                $sql = "ALTER TABLE `{$model['name']}` ADD CONSTRAINT "
+                     . generate_fk_constraint_name($model['name'], $rel['local_key'])
+                     . " FOREIGN KEY (`{$rel['local_key']}`) REFERENCES `{$rel['target']}` (`{$rel['foreign_key']}`);";
+                try {
+                    $pdo->exec($sql);
+                } catch (\Throwable $e) {
+                    $fk_errors[] = ['table' => $model['name'], 'message' => $e->getMessage()];
+                }
+            }
+        }
+    } catch (\Throwable $e) {
+        setup_cli_json(500, ['ok' => false, 'error' => 'Table creation failed: ' . $e->getMessage(), 'tables_created' => $tables_created]);
+    }
+
+    setup_cli_json(200, [
+        'ok'                 => true,
+        'message'            => 'Installation complete. SAVE the secret below — it is shown only once.',
+        'databases'          => ['business' => $db, 'auth' => $auth_db],
+        'tables_created'     => $tables_created,
+        'foreign_key_errors' => $fk_errors,
+        'admin_username'     => $admin_username,
+        'setup_hmac_secret'  => $setup_hmac_secret,
+    ]);
+}
+
+/** Bootstrap $pdo + $setup_hmac_secret from _db_config.php, or emit JSON + exit. */
+function setup_cli_bootstrap() {
+    if (!file_exists('_db_config.php')) {
+        setup_cli_json(500, ['ok' => false, 'error' => 'Setup incomplete: _db_config.php not found. Install this instance first.']);
+    }
+    include '_db_config.php';   // provides $pdo, $auth_pdo, $setup_hmac_secret
+    if (empty($setup_hmac_secret) || $setup_hmac_secret === '<SETUP_HMAC_SECRET>') {
+        setup_cli_json(500, ['ok' => false, 'error' => '$setup_hmac_secret is not configured in _db_config.php.']);
+    }
+    return ['pdo' => $pdo, 'secret' => $setup_hmac_secret];
+}
+
+/** Phase 1: compute the schema diff and return the proposed DDL + a plan token. Read-only. */
+function setup_cli_update_plan($config_url) {
+    $ctx           = setup_cli_bootstrap();
+    $object_models = setup_fetch_object_models($config_url);
+    $actions       = compute_schema_diff($ctx['pdo'], $object_models);
+    $plan_token    = setup_make_plan_token($actions, $ctx['secret']);
+
+    $proposed = [];
+    foreach ($actions as $id => $sql) {
+        $proposed[] = ['id' => $id, 'sql' => $sql];
+    }
+    setup_cli_json(200, [
+        'ok'         => true,
+        'up_to_date' => empty($actions),
+        'plan_token' => $plan_token,
+        'actions'    => $proposed,
+    ]);
+}
+
+/** Phase 2: re-derive the diff, verify the plan token, execute approved ids, regen code on full approval. */
+function setup_cli_update_apply($config_url, array $args) {
+    $ctx           = setup_cli_bootstrap();
+    $pdo           = $ctx['pdo'];
+    $object_models = setup_fetch_object_models($config_url);
+    $actions       = compute_schema_diff($pdo, $object_models);
+    $plan_token    = setup_make_plan_token($actions, $ctx['secret']);
+
+    $submitted = (isset($args['plan-token']) && $args['plan-token'] !== true) ? (string) $args['plan-token'] : '';
+    if (!hash_equals($plan_token, $submitted)) {
+        $proposed = [];
+        foreach ($actions as $id => $sql) {
+            $proposed[] = ['id' => $id, 'sql' => $sql];
+        }
+        setup_cli_json(409, [
+            'ok'         => false,
+            'error'      => 'Plan token mismatch: the schema has changed since planning. Re-run plan.',
+            'plan_token' => $plan_token,
+            'actions'    => $proposed,
+        ]);
+    }
+
+    // Parse + validate approved ids (comma-separated) against the fresh plan.
+    $approve_raw  = (isset($args['approve']) && $args['approve'] !== true) ? (string) $args['approve'] : '';
+    $approved_ids = [];
+    if ($approve_raw !== '') {
+        foreach (explode(',', $approve_raw) as $id) {
+            $id = trim($id);
+            if (!ctype_digit($id)) {
+                setup_cli_json(400, ['ok' => false, 'error' => '--approve must be a comma-separated list of integer ids.']);
+            }
+            $id = (int) $id;
+            if (!array_key_exists($id, $actions)) {
+                setup_cli_json(400, ['ok' => false, 'error' => "Approved id $id is not part of the current plan."]);
+            }
+            $approved_ids[$id] = true;
+        }
+    }
+
+    // Execute approved statements in plan order. MySQL DDL auto-commits per statement.
+    $results = [];
+    $all_ok  = true;
+    foreach ($actions as $id => $sql) {
+        if (!isset($approved_ids[$id])) {
+            $results[] = ['id' => $id, 'sql' => $sql, 'status' => 'skipped'];
+            continue;
+        }
+        try {
+            $pdo->exec($sql);
+            $results[] = ['id' => $id, 'sql' => $sql, 'status' => 'executed'];
+        } catch (\Throwable $e) {
+            $all_ok = false;
+            $results[] = ['id' => $id, 'sql' => $sql, 'status' => 'error', 'message' => $e->getMessage()];
+        }
+    }
+
+    // Regenerate app code only when the FULL plan was approved and applied cleanly.
+    $code_regenerated   = false;
+    $regen_note         = null;
+    $full_plan_approved = count($actions) > 0 && count($approved_ids) === count($actions);
+    if ($full_plan_approved && $all_ok) {
+        ob_start();
+        create_app($config_url);
+        ob_end_clean();
+        $code_regenerated = true;
+    } elseif (!$full_plan_approved) {
+        $regen_note = 'Partial approval: app code was NOT regenerated. Approve the full plan to sync code with schema.';
+    } elseif (!$all_ok) {
+        $regen_note = 'One or more statements failed: app code was NOT regenerated.';
+    }
+
+    setup_cli_json($all_ok ? 200 : 207, [
+        'ok'               => $all_ok,
+        'applied'          => $results,
+        'code_regenerated' => $code_regenerated,
+        'note'             => $regen_note,
+    ]);
 }
 
 
