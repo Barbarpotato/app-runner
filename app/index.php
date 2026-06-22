@@ -13,6 +13,8 @@ if (!file_exists(__DIR__ . '/../Library/config.json')) {
 
 session_start();
 
+define('ROOT_PATH', dirname(__DIR__));
+
 $action = $_GET['action'] ?? 'index';
 
 if (isset($_SESSION['user'])) {

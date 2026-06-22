@@ -3,3 +3,4 @@
 _db_config.php
 .claude*
 /agent*
+/logs*

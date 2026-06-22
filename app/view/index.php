@@ -39,17 +39,6 @@ include __DIR__ . '/header.php';
                 <div class="card stat-card">
                     <div class="card-body">
                         <div class="stat-icon">
-                            <i class="fas fa-exclamation-triangle"></i>
-                        </div>
-                        <h5 class="card-title">Error Logs</h5>
-                        <p class="card-text display-4"><?php echo $errorLogCount; ?></p>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card stat-card">
-                    <div class="card-body">
-                        <div class="stat-icon">
                             <i class="fas fa-key"></i>
                         </div>
                         <h5 class="card-title">API Tokens</h5>

@@ -24,6 +24,13 @@ spl_autoload_register(function ($class_name) {
 // Include the base LindseyEngine
 include __DIR__ . '/Library/engine/_LindseyEngine.php';
 
+// Override error_log to redirect all logs to project logs/error.log
+$project_log_path = __DIR__ . '/logs/error.log';
+if (!is_dir(__DIR__ . '/logs')) {
+    mkdir(__DIR__ . '/logs', 0755, true);
+}
+ini_set('error_log', $project_log_path);
+
 class Bootloader {
 
     public function run() {
@@ -335,20 +342,7 @@ class Bootloader {
                 $pdo->rollBack();
             }
             
-            //!!! dependent on the _setup_auth.txt
-            // store the error log to database
-            global $auth_pdo;
-            $body = json_decode(file_get_contents('php://input'), true);
-            $stmt = $auth_pdo->prepare("INSERT INTO error_log (token, error_message, body, query_string, channel_name, function_name) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([
-                $apiKey,
-                $e->getMessage(),
-                json_encode($body),
-                json_encode($_GET),
-                $apiChannel['channel_name'],
-                $endpoint
-            ]);
-
+            // Log error to Apache error log
             $error_path = $e->getFile();
             $error_level = array(
                 '/channels/' => 400,
@@ -366,7 +360,28 @@ class Bootloader {
                 }
             }
 
-            $error_log_id = $auth_pdo->lastInsertId();
+            // Prepare log message
+            $body = json_decode(file_get_contents('php://input'), true);
+            $log_message = sprintf(
+                "[%s] Error in channel '%s', endpoint '%s', token '%s': %s | Body: %s | Query: %s",
+                date('Y-m-d H:i:s'),
+                $apiChannel['channel_name'] ?? 'unknown',
+                $endpoint ?? 'unknown',
+                $apiKey ?? 'unknown',
+                $e->getMessage(),
+                json_encode($body),
+                json_encode($_GET)
+            );
+            
+            // Ensure logs directory exists
+            $log_dir = __DIR__ . '/logs';
+            if (!is_dir($log_dir)) {
+                mkdir($log_dir, 0755, true);
+            }
+            
+            // Write to project error log
+            error_log($log_message, 3, $log_dir . '/error.log');
+            
             echo json_encode(['error' => $e->getMessage()]);
             exit;
         }
