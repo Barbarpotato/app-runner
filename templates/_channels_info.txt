@@ -63,10 +63,12 @@ foreach ($items as $item) {
 
 $usage_guide = [
     "how_to_use" => [
-        "step_1" => "Read this info.php response to discover available channels and endpoints.",
-        "step_2" => "Call 'api_spec_endpoint' using the same method as the main endpoint to retrieve the full payload schema (required fields, types, nested structures) BEFORE making any request.",
-        "step_3" => "Optionally, call 'form_endpoint' using the same method as the main endpoint to retrieve an HTML form representation.",
-        "step_4" => "Use the schema from api_spec_endpoint to construct a valid request, then call 'endpoint_path' with the appropriate method.",
+        "response_structure" => "This response contains 'how_to_use' (this guide) plus one key per channel (e.g. 'admin', 'client'). Each channel key holds an array of endpoint objects.",
+        "url_construction"   => "The full URL for each endpoint is already provided in 'endpoint_path'. It follows the pattern: {base_url}/channels/{channel}/{endpoint_name}. The channel name is the key in this response (e.g. 'admin'), and endpoint_name is the field inside each endpoint object.",
+        "step_1" => "Read the channel keys in this response (siblings of 'how_to_use') to discover available channels and their endpoints.",
+        "step_2" => "Call 'api_spec_endpoint' using the same HTTP method as 'method' in the endpoint object to retrieve the full payload schema (required fields, types, nested structures) BEFORE making any request.",
+        "step_3" => "Optionally, call 'form_endpoint' using the same HTTP method to retrieve an HTML form representation.",
+        "step_4" => "Use the schema from api_spec_endpoint to construct a valid request, then call 'endpoint_path' with the method specified in the endpoint object.",
         "note"   => "api_spec_endpoint and form_endpoint always use the same HTTP method as the main endpoint. Skipping step 2 will result in trial-and-error validation errors. Always read api_spec_endpoint first."
     ]
 ];
