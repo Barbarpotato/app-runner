@@ -61,6 +61,21 @@ foreach ($items as $item) {
     }
 }
 
+// Build user_stories dynamically from each channel's 'description' in config.json
+// (config.json is regenerated from the Superlindey project spec, so this stays in sync
+// with whatever is set on the channel via update_channel).
+$user_stories = [];
+$configPath = $baseDir . '/../Library/config.json';
+if (file_exists($configPath)) {
+    $projectConfig = json_decode(file_get_contents($configPath), true);
+    foreach ($projectConfig['channels'] ?? [] as $channelConfig) {
+        $channelName = $channelConfig['channel_name'] ?? null;
+        if ($channelName !== null) {
+            $user_stories[$channelName] = $channelConfig['description'] ?? '';
+        }
+    }
+}
+
 $usage_guide = [
     "how_to_use" => [
         "response_structure" => "This response contains 'how_to_use' (this guide) plus one key per channel (e.g. 'admin', 'client'). Each channel key holds an array of endpoint objects.",
@@ -70,7 +85,8 @@ $usage_guide = [
         "step_3" => "Optionally, call 'form_endpoint' using the same HTTP method to retrieve an HTML form representation.",
         "step_4" => "Use the schema from api_spec_endpoint to construct a valid request, then call 'endpoint_path' with the method specified in the endpoint object.",
         "note"   => "api_spec_endpoint and form_endpoint always use the same HTTP method as the main endpoint. Skipping step 2 will result in trial-and-error validation errors. Always read api_spec_endpoint first."
-    ]
+    ],
+    "user_stories" => $user_stories
 ];
 
 $output = array_merge($usage_guide, $channels);
