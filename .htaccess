@@ -4,7 +4,8 @@ RewriteEngine On
 RewriteRule ^Library/ - [F,L]
 
 # Block direct access to channel endpoint files - must go through Bootloader.php (index.php)
-RewriteRule ^channels/.*\.php$ - [F,L]
+# (channels/info.php stays public - it's the intentional discovery endpoint at the channels/ root)
+RewriteRule ^channels/[^/]+/.*\.php$ - [F,L]
 
 # Exclude Library folder
 
