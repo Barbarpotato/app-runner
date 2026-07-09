@@ -17,6 +17,7 @@ class LoginController {
             $user = $userModel->authenticate($username, $password);
 
             if ($user) {
+                session_regenerate_id(true);
                 $_SESSION['user'] = $user;
                 header('Location: ?action=index');
                 exit;

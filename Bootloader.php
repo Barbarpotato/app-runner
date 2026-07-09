@@ -24,6 +24,9 @@ spl_autoload_register(function ($class_name) {
 // Include the base LindseyEngine
 include __DIR__ . '/Library/engine/_LindseyEngine.php';
 
+// Lazy model container + config cache helper (kept separate from _LindseyEngine.php on purpose)
+include __DIR__ . '/lindsey_engine.php';
+
 // Override error_log to redirect all logs to project logs/error.log
 $project_log_path = __DIR__ . '/logs/error.log';
 if (!is_dir(__DIR__ . '/logs')) {
@@ -35,8 +38,8 @@ class Bootloader {
 
     public function run() {
         try {
-            // Load the configuration
-            $config = json_decode(file_get_contents('Library/config.json'), true);
+            // Load the configuration (cached - avoids re-parsing the 183KB JSON file every request)
+            $config = lindsey_load_config(__DIR__ . '/Library/config.json');
             
             // Transaction management: commit on success, rollback on error
             $commit_on_shutdown = false;
@@ -60,10 +63,6 @@ class Bootloader {
 
             // Iterate over each object_title in object_models
             foreach ($config['object_models'] as $title => $model_configs) {
-                // Create global object for this title
-                global $${title};
-                $${title} = new stdClass();
-
                 $all_models = [];
                 foreach ($model_configs as $model_data) {
                     if (isset($model_data['model'])) {
@@ -88,11 +87,15 @@ class Bootloader {
                     }
                 }
 
+                $model_class_map = [];
                 foreach ($all_models as $model_info) {
                     $obj = $model_info['name'];
-                    $class_name = str_replace(' ', '', ucwords(str_replace('_', ' ', $obj)));
-                    $${title}->{$obj} = new $class_name($config);
+                    $model_class_map[$obj] = str_replace(' ', '', ucwords(str_replace('_', ' ', $obj)));
                 }
+
+                // Create global object for this title - models are only instantiated on first access
+                global $${title};
+                $${title} = new LindseyLazyContainer($config, $model_class_map);
             }
             // Parse the request URI
             $requestUri = $_SERVER['REQUEST_URI'];
@@ -266,6 +269,13 @@ class Bootloader {
             // Remove query string
             $endpoint = explode('?', $endpoint)[0];
 
+            // reject path traversal attempts before the endpoint is used to build a file path
+            if (strpos($endpoint, '..') !== false || strpos($endpoint, "\0") !== false) {
+                http_response_code(400);
+                echo json_encode(['error' => 'Invalid endpoint']);
+                exit;
+            }
+
             // make sure the request is a post method
             $is_action_endpoint = strpos($endpoint, '_') === 0;
 
@@ -319,10 +329,12 @@ class Bootloader {
 
             // Check if the file exists and include it
             if (!empty($endpoint) && file_exists($filePath)) {
-                // Start transaction for this request
+                // Only write endpoints need a transaction - read (GET) endpoints don't mutate data
                 global $pdo;
-                $pdo->beginTransaction();
-                $commit_on_shutdown = true;
+                if ($is_action_endpoint) {
+                    $pdo->beginTransaction();
+                    $commit_on_shutdown = true;
+                }
                 include $filePath;
                 // If endpoint returned without exiting, commit now
                 if ($pdo->inTransaction()) {
@@ -382,7 +394,7 @@ class Bootloader {
             // Write to project error log
             error_log($log_message, 3, $log_dir . '/error.log');
             
-            echo json_encode(['error' => $e->getMessage()]);
+            echo json_encode(['error' => 'Internal server error']);
             exit;
         }
     }

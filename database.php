@@ -1,6 +1,12 @@
 <?php
 session_start();
 
+// ponytail: reuses the same session gate as app/index.php - no separate auth system
+if (!isset($_SESSION['user'])) {
+    http_response_code(403);
+    exit('Forbidden');
+}
+
 // ===== CONFIG =====
 $HOST = "mysql";
 $DB   = "test";
@@ -23,6 +29,15 @@ function safe($q) {
     return preg_match('/^\s*SELECT/i', $q);
 }
 
+// only allow operating on tables that actually exist in this DB
+function valid_table($pdo, $t) {
+    static $tables = null;
+    if ($tables === null) {
+        $tables = $pdo->query("SHOW TABLES")->fetchAll(PDO::FETCH_COLUMN);
+    }
+    return in_array($t, $tables, true);
+}
+
 // ===== API MODE =====
 if (isset($_GET['api'])) {
     header("Content-Type: application/json");
@@ -38,7 +53,11 @@ if (isset($_GET['api'])) {
     }
 
     if ($action === "columns") {
-        $t = $_GET['table'];
+        $t = $_GET['table'] ?? '';
+        if (!valid_table($pdo, $t)) {
+            echo json_encode(["error" => "Unknown table"]);
+            exit;
+        }
         echo json_encode(
             $pdo->query("DESCRIBE `$t`")->fetchAll(PDO::FETCH_ASSOC)
         );
@@ -46,7 +65,11 @@ if (isset($_GET['api'])) {
     }
 
     if ($action === "data") {
-        $t = $_GET['table'];
+        $t = $_GET['table'] ?? '';
+        if (!valid_table($pdo, $t)) {
+            echo json_encode(["error" => "Unknown table"]);
+            exit;
+        }
         $page = max(1, intval($_GET['page'] ?? 1));
         $limit = 50;
         $offset = ($page - 1) * $limit;

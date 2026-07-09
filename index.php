@@ -1,15 +1,8 @@
 <?php
 
-// init session
-session_start();
-
-$timeout = 1800; // 30 menit
-if (isset($_SESSION['last_activity']) &&
-    (time() - $_SESSION['last_activity'] > $timeout)) {
-    session_unset();
-    session_destroy();
-}
-$_SESSION['last_activity'] = time();
+// ponytail: no session here - this is the API entrypoint (auth via X-API-Key
+// header in Bootloader.php), sessions are only used by app/index.php's admin panel.
+// Starting a session here forced a file write + lock on every API request for nothing.
 
 // Root API Bootloader
 include 'Bootloader.php';

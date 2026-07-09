@@ -1,6 +1,7 @@
 <?php
 
 include __DIR__ . '/../model/api_token.php';
+include __DIR__ . '/../csrf.php';
 
 class ApiTokensController {
     public function index() {
@@ -11,6 +12,10 @@ class ApiTokensController {
 
     public function add() {
         if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+            if (!csrf_check($_POST['csrf'] ?? '')) {
+                http_response_code(403);
+                exit('Invalid CSRF token');
+            }
             $channel_list = isset($_POST['channel_list']) ? $_POST['channel_list'] : [];
             $data = [
                 'token' => bin2hex(random_bytes(20)), // Generate random token
@@ -41,6 +46,10 @@ class ApiTokensController {
             exit;
         }
         if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+            if (!csrf_check($_POST['csrf'] ?? '')) {
+                http_response_code(403);
+                exit('Invalid CSRF token');
+            }
             $channel_list = isset($_POST['channel_list']) ? $_POST['channel_list'] : [];
 
             // Build ownership_data_binding JSON from the hidden field populated by JS on submit
@@ -70,6 +79,10 @@ class ApiTokensController {
 
     public function delete() {
         $id = $_GET['id'] ?? null;
+        if (!csrf_check($_GET['csrf'] ?? '')) {
+            http_response_code(403);
+            exit('Invalid CSRF token');
+        }
         if ($id) {
             $apiTokenModel = new ApiToken();
             $apiTokenModel->delete($id);

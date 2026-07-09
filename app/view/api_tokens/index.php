@@ -63,7 +63,7 @@
                                                     <a href="?action=api_tokens&method=edit&id=<?php echo $token['id']; ?>" class="btn btn-sm btn-warning btn-action">
                                                         <i class="fas fa-edit"></i> Edit
                                                     </a>
-                                                    <a href="?action=api_tokens&method=delete&id=<?php echo $token['id']; ?>" class="btn btn-sm btn-danger btn-action" onclick="return confirm('Are you sure you want to delete this token?')">
+                                                    <a href="?action=api_tokens&method=delete&id=<?php echo $token['id']; ?>&csrf=<?php echo htmlspecialchars(csrf_token()); ?>" class="btn btn-sm btn-danger btn-action" onclick="return confirm('Are you sure you want to delete this token?')">
                                                         <i class="fas fa-trash"></i> Delete
                                                     </a>
                                                 </td>

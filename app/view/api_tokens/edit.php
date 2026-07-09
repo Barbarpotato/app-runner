@@ -47,6 +47,7 @@
                     </div>
                     <div class="card-body">
                         <form method="POST" id="tokenForm">
+                            <input type="hidden" name="csrf" value="<?php echo htmlspecialchars(csrf_token()); ?>">
                             <input type="hidden" name="ownership_data_binding_json" id="ownershipDataBindingJson">
                             <div class="mb-3">
                                 <label for="name" class="form-label">Name</label>
