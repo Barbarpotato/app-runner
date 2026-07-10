@@ -25,7 +25,7 @@ spl_autoload_register(function ($class_name) {
 include __DIR__ . '/Library/engine/_LindseyEngine.php';
 
 // Lazy model container + config cache helper (kept separate from _LindseyEngine.php on purpose)
-include __DIR__ . '/lindsey_engine.php';
+include __DIR__ . '/utils/lazy_load_engine.php';
 
 // Override error_log to redirect all logs to project logs/error.log
 $project_log_path = __DIR__ . '/logs/error.log';
