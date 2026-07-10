@@ -346,7 +346,7 @@ class Bootloader {
                 http_response_code(404);
                 echo json_encode(['error' => 'Endpoint not found']);
             }
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             // Rollback transaction if active
             $commit_on_shutdown = false;
             global $pdo;
@@ -363,14 +363,15 @@ class Bootloader {
 
             header('Content-Type: application/json; charset=utf-8');
             // default
-            http_response_code(500);
+            $response_code = 500;
             // check error level
             foreach ($error_level as $marker => $code) {
                 if (strpos($error_path, $marker) !== false) {
-                    http_response_code($code);
+                    $response_code = $code;
                     break;
                 }
             }
+            http_response_code($response_code);
 
             // Prepare log message
             $body = json_decode(file_get_contents('php://input'), true);
@@ -394,7 +395,10 @@ class Bootloader {
             // Write to project error log
             error_log($log_message, 3, $log_dir . '/error.log');
             
-            echo json_encode(['error' => 'Internal server error']);
+            // 400/422 are expected validation errors raised by channel/hook business logic - safe to expose.
+            // 500 means an unexpected internal failure (e.g. raw DB error) - message may leak schema/query details, so keep it generic.
+            $client_message = $response_code === 500 ? 'Internal server error' : $e->getMessage();
+            echo json_encode(['error' => $client_message]);
             exit;
         }
     }
