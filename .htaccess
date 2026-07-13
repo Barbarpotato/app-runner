@@ -7,6 +7,9 @@ RewriteRule ^Library/ - [F,L]
 # (channels/info.php stays public - it's the intentional discovery endpoint at the channels/ root)
 RewriteRule ^channels/[^/]+/.*\.php$ - [F,L]
 
+# Block direct access to interface page files - must go through Bootloader.php (index.php)
+RewriteRule ^interfaces/[^/]+/.*\.php$ - [F,L]
+
 # Exclude Library folder
 
 RewriteCond %{REQUEST_URI} !^/database\.php$

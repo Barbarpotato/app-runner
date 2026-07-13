@@ -105,6 +105,35 @@ class Bootloader {
             // --> example: app_runner/channels/<channel_name>/<endpoint_name>
             $requestEndpoint = explode('/', $requestUri)[3];
 
+            // Frontend interface routing (artefact_2 config source) — plain HTML/PHP
+            // pages, no X-API-Key, no JSON envelope, no scope/ownership checks. Runs
+            // BEFORE the API channel/auth flow below and exits on match, so a URL
+            // segment can only ever resolve to one of channels/ or interfaces/.
+            foreach ($config['interfaces'] ?? [] as $interface) {
+                if ($requestEndpoint !== $interface['name']) {
+                    continue;
+                }
+                $baseUrl = '/' . $interface['name'];
+                $pos = strpos($requestUri, $baseUrl);
+                $route = $pos !== false ? substr($requestUri, $pos + strlen($baseUrl) + 1) : '';
+                $route = explode('?', $route)[0];
+
+                if (strpos($route, '..') !== false || strpos($route, "\0") !== false) {
+                    http_response_code(400);
+                    echo 'Invalid route';
+                    exit;
+                }
+
+                $filePath = 'interfaces/' . $interface['name'] . '/' . $route . '.php';
+                if (!empty($route) && file_exists($filePath)) {
+                    include $filePath;
+                } else {
+                    http_response_code(404);
+                    echo '404 Not Found';
+                }
+                exit;
+            }
+
             // Find the API channel
             $apiChannel = null;
             foreach ($config['channels'] as $channel) {

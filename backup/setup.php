@@ -112,12 +112,9 @@ function create_app($url = null){
         $object_models = array_merge($object_models, $models_array);
     }
 
-    // delete the channels, interfaces and Library folders if exist to start fresh
+    // delete the channels and Library folders if exist to start fresh
     if (is_dir('channels')) {
         delete_directory('channels');
-    }
-    if (is_dir('interfaces')) {
-        delete_directory('interfaces');
     }
     if (is_dir('Library')) {
         delete_directory('Library');
@@ -179,7 +176,7 @@ function create_app($url = null){
     }
 
     // create folders based on channels
-    foreach ($config['channels'] ?? [] as $channel) {
+    foreach ($config['channels'] as $channel) {
         $channel_name = $channel['channel_name'];
         $folders = explode('/', $channel_name);
         $path = 'channels/';
@@ -199,7 +196,7 @@ function create_app($url = null){
     }
 
     // channel pages
-    foreach ($config['channels'] ?? [] as $channel) {
+    foreach ($config['channels'] as $channel) {
         if (isset($channel['pages'])) {
             foreach ($channel['pages'] as $page) {
 
@@ -218,7 +215,7 @@ function create_app($url = null){
     }
 
     // create channel includes (policies)
-    foreach ($config['channels'] ?? [] as $channel) {
+    foreach ($config['channels'] as $channel) {
         if (isset($channel['include'])) {
             $include_code = $channel['include']['code'];
             $include_name = $channel['include']['name'];
@@ -229,7 +226,7 @@ function create_app($url = null){
     }
 
     // create api-spec.php for each channel — merges all specs/*.json into one JSON array
-    foreach ($config['channels'] ?? [] as $channel) {
+    foreach ($config['channels'] as $channel) {
         $channel_name = $channel['channel_name'];
 
         // Read the api-spec template
@@ -241,21 +238,6 @@ function create_app($url = null){
         $api_spec_content = "<?php\n" . $api_spec_body . "?>";
 
         file_put_contents("channels/$channel_name/api-spec.php", $api_spec_content);
-    }
-
-    // create interfaces (artefact_2 config source) — plain HTML/PHP pages, no
-    // JSON envelope, no specs, no api-key: served directly by Bootloader's
-    // interface route match instead of the API-channel auth flow.
-    foreach ($config['interfaces'] ?? [] as $interface) {
-        $interface_name = $interface['name'];
-        $path = 'interfaces/' . $interface_name . '/';
-        if (!is_dir($path)) {
-            mkdir($path, 0755, true);
-        }
-        foreach ($interface['pages'] ?? [] as $page) {
-            $filename = $path . ltrim($page['route'], '/') . '.php';
-            file_put_contents($filename, $page['code']);
-        }
     }
 
     // object models - generate _LindseyEngine.php
