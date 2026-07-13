@@ -32,6 +32,7 @@ $project_log_path = __DIR__ . '/logs/error.log';
 if (!is_dir(__DIR__ . '/logs')) {
     mkdir(__DIR__ . '/logs', 0755, true);
 }
+ini_set('log_errors', 1);
 ini_set('error_log', $project_log_path);
 
 class Bootloader {
@@ -393,7 +394,7 @@ class Bootloader {
             }
             
             // Write to project error log
-            error_log($log_message, 3, $log_dir . '/error.log');
+            error_log($log_message . PHP_EOL, 3, $log_dir . '/error.log');
             
             // 400/422 are expected validation errors raised by channel/hook business logic - safe to expose.
             // 500 means an unexpected internal failure (e.g. raw DB error) - message may leak schema/query details, so keep it generic.

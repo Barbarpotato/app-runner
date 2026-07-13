@@ -30,6 +30,9 @@
                     <li class="nav-item">
                         <a class="nav-link <?php echo ($active ?? '') == 'api_tokens' ? 'active' : ''; ?>" href="?action=api_tokens"><i class="fas fa-key me-1"></i>API Tokens</a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link <?php echo ($active ?? '') == 'db_ide' ? 'active' : ''; ?>" href="?action=db_ide"><i class="fas fa-database me-1"></i>DB IDE</a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
                     <span class="navbar-text me-3">
