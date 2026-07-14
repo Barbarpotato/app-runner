@@ -5,7 +5,10 @@ function getBaseUrl() {
     if (php_sapi_name() === 'cli') {
         return 'http://localhost';
     }
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
+    $forwardedProto = $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '';
+    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || strcasecmp($forwardedProto, 'https') === 0;
+    $protocol = $isHttps ? "https" : "http";
     $host = $_SERVER['HTTP_HOST'];
     $scriptDir = dirname($_SERVER['SCRIPT_NAME']);
     $projectRoot = preg_replace('#/channels$#', '', $scriptDir);
@@ -18,9 +21,10 @@ function getBaseUrl() {
 $baseDir = __DIR__;
 $channels = [];
 $baseUrl = getBaseUrl();
+$channelFilter = $_GET['channel'] ?? null;
 
-// Scan all subdirectories in channels folder
-$items = scandir($baseDir);
+// Scan all subdirectories in channels folder (or just the requested one)
+$items = $channelFilter !== null ? [$channelFilter] : scandir($baseDir);
 foreach ($items as $item) {
     if ($item === '.' || $item === 'index.php' || $item === 'info.php') continue;
     $channelPath = $baseDir . DIRECTORY_SEPARATOR . $item;
@@ -50,7 +54,7 @@ foreach ($items as $item) {
                         'endpoint_path' => $endpointPath,
                         'api_spec_endpoint' => $endpointPath . '/api-spec',
                         'form_endpoint' => $form_endpoint,
-                        'description' => $data['description'] ?? null
+                        'user_stories' => $data['user_stories'] ?? null
                     ];
                 }
             }
@@ -61,7 +65,7 @@ foreach ($items as $item) {
     }
 }
 
-// Build user_stories dynamically from each channel's 'description' in config.json
+// Build user_stories dynamically from each channel's 'user_stories' in config.json
 // (config.json is regenerated from the Superlindey project spec, so this stays in sync
 // with whatever is set on the channel via update_channel).
 $user_stories = [];
@@ -70,8 +74,8 @@ if (file_exists($configPath)) {
     $projectConfig = json_decode(file_get_contents($configPath), true);
     foreach ($projectConfig['channels'] ?? [] as $channelConfig) {
         $channelName = $channelConfig['channel_name'] ?? null;
-        if ($channelName !== null) {
-            $user_stories[$channelName] = $channelConfig['description'] ?? '';
+        if ($channelName !== null && ($channelFilter === null || $channelName === $channelFilter)) {
+            $user_stories[$channelName] = $channelConfig['user_stories'] ?? '';
         }
     }
 }
@@ -79,12 +83,14 @@ if (file_exists($configPath)) {
 $usage_guide = [
     "how_to_use" => [
         "response_structure" => "This response contains 'how_to_use' (this guide) plus one key per channel (e.g. 'admin', 'client'). Each channel key holds an array of endpoint objects.",
+        "channel_filter" => "Pass ?channel={name} (e.g. info.php?channel=admin) to scope the response to a single channel, useful when building a FE app dedicated to that channel.",
         "url_construction"   => "The full URL for each endpoint is already provided in 'endpoint_path'. It follows the pattern: {base_url}/channels/{channel}/{endpoint_name}. The channel name is the key in this response (e.g. 'admin'), and endpoint_name is the field inside each endpoint object.",
-        "step_1" => "Read the channel keys in this response (siblings of 'how_to_use') to discover available channels and their endpoints.",
-        "step_2" => "Call 'api_spec_endpoint' using the same HTTP method as 'method' in the endpoint object to retrieve the full payload schema (required fields, types, nested structures) BEFORE making any request.",
-        "step_3" => "Optionally, call 'form_endpoint' using the same HTTP method to retrieve an HTML form representation.",
-        "step_4" => "Use the schema from api_spec_endpoint to construct a valid request, then call 'endpoint_path' with the method specified in the endpoint object.",
-        "note"   => "api_spec_endpoint and form_endpoint always use the same HTTP method as the main endpoint. Skipping step 2 will result in trial-and-error validation errors. Always read api_spec_endpoint first."
+        "step_1" => "Read 'user_stories' (sibling of 'how_to_use') first to understand each channel's purpose and intended user flows — this should drive FE structure/UX decisions, not just the endpoint list.",
+        "step_2" => "Read the channel keys in this response (siblings of 'how_to_use') to discover available channels and their endpoints.",
+        "step_3" => "Call 'api_spec_endpoint' using the same HTTP method as 'method' in the endpoint object to retrieve the full payload schema (required fields, types, nested structures) BEFORE making any request.",
+        "step_4" => "Optionally, call 'form_endpoint' (POST) to retrieve a JSON form-field descriptor: for each body field, its type/default, and for model-backed fields, a live-resolved 'options' list (id/label pairs) to populate a dropdown. This call is read-only — it does not execute the endpoint's business logic.",
+        "step_5" => "Use the schema from api_spec_endpoint to construct a valid request, then call 'endpoint_path' with the method specified in the endpoint object.",
+        "note"   => "api_spec_endpoint and form_endpoint always use the same HTTP method as the main endpoint. Skipping step 3 will result in trial-and-error validation errors. Always read api_spec_endpoint first."
     ],
     "user_stories" => $user_stories
 ];
