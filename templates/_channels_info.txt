@@ -54,7 +54,7 @@ foreach ($items as $item) {
                         'endpoint_path' => $endpointPath,
                         'api_spec_endpoint' => $endpointPath . '/api-spec',
                         'form_endpoint' => $form_endpoint,
-                        'user_stories' => $data['user_stories'] ?? null
+                        'description' => $data['description'] ?? null,
                     ];
                 }
             }
