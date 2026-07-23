@@ -7,6 +7,13 @@ RewriteRule ^Library/ - [F,L]
 # (channels/info.php stays public - it's the intentional discovery endpoint at the channels/ root)
 RewriteRule ^channels/[^/]+/.*\.php$ - [F,L]
 
+# /auth/<name> (no extension) -> auth/<name>.php - keeps this self-contained folder
+# consistent with the rest of the API's extension-less URL style (which gets it for free
+# through Bootloader.php's own path parsing; /auth/ bypasses Bootloader entirely, so it
+# needs this explicit rewrite instead).
+RewriteCond %{REQUEST_FILENAME}.php -f
+RewriteRule ^(auth/[^/]+)$ $1.php [L]
+
 # Exclude Library folder
 
 RewriteCond %{REQUEST_URI} !^/database\.php$

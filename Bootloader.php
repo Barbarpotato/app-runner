@@ -171,34 +171,9 @@ class Bootloader {
                 $GLOBALS['pagination_data'] = $pagination_data; // store the pagination data to global variables
             } 
 
-            //!!! dependent on the superlindey application
-            // get the headers x-ownership-data
-            if (isset($_SERVER['HTTP_X_OWNERSHIP_DATA'])) {
-                $ownership_data = json_decode($_SERVER['HTTP_X_OWNERSHIP_DATA'], true);
-
-                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
-                if (!is_array($ownership_data)) {
-                    http_response_code(400);
-                    echo json_encode(['error' => 'Invalid X-Ownership-Data header format']);
-                    exit;
-                }
-
-                // validate the structure the user must send {"property" : "value",  "property" : "value"} in headers
-                foreach ($ownership_data as $key => $value) {
-                    if (!is_string($key) || !is_string($value)) {
-                        http_response_code(400);
-                        echo json_encode(['error' => 'Invalid X-Ownership-Data header format']);
-                        exit;
-                    }
-                }
-
-                // store the ownership data to global variable for later use
-                $GLOBALS['ownership_data'] = $ownership_data; // store the ownership data to global variables
-            }
-
             $apiKey = $_SERVER['HTTP_X_API_KEY'];
             global $auth_pdo;
-            $stmt = $auth_pdo->prepare("SELECT scopes, channel_list, ownership_data_binding FROM api_tokens WHERE token = ?");
+            $stmt = $auth_pdo->prepare("SELECT scopes, channel_list FROM api_tokens WHERE token = ?");
             $stmt->execute([$apiKey]);
             $api_token_list = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$api_token_list) {
@@ -209,8 +184,6 @@ class Bootloader {
             $scopes = $api_token_list['scopes'];
             $channel_allowed_list = json_decode($api_token_list['channel_list'], true);
             if (!is_array($channel_allowed_list)) $channel_allowed_list = [];
-            $ownership_data_binding = json_decode($api_token_list['ownership_data_binding'] ?? '{}', true);
-            if (!is_array($ownership_data_binding)) $ownership_data_binding = [];
 
             // validate the channel list allowed from api token to the user request route
             if(!in_array($apiChannel['channel_name'], $channel_allowed_list)){
@@ -219,33 +192,34 @@ class Bootloader {
                 exit;
             }
 
-            // validate the ownership data header against the ownership_data_binding column
-            // ownership_data_binding format: {"member_number": ["M001", "M002"], "organization_number": ["*"]}
-            // X-Ownership-Data header format: {"member_number": "M001", "organization_number": "ORG01"}
-            // any unkown property from the X-Ownership-Data header will be rejected
-            if (isset($_SERVER['HTTP_X_OWNERSHIP_DATA']) && !empty($ownership_data_binding)) {
-                $header_ownership_data = json_decode($_SERVER['HTTP_X_OWNERSHIP_DATA'], true);
-                if (!is_array($header_ownership_data)) {
-                    http_response_code(403);
-                    echo json_encode(['error' => 'Forbidden: Invalid X-Ownership-Data header format']);
-                    exit;
-                }
-                foreach ($header_ownership_data as $key => $value) {
-                    if (!array_key_exists($key, $ownership_data_binding)) {
-                        http_response_code(403);
-                        echo json_encode(['error' => 'Forbidden: Invalid Ownership data']);
-                        exit;
-                    }
-                    $allowed_values = $ownership_data_binding[$key];
-                    if (!is_array($allowed_values)) $allowed_values = [];
-                    if (in_array('*', $allowed_values)) continue;
-                    if (!in_array($value, $allowed_values)) {
-                        http_response_code(403);
-                        echo json_encode(['error' => 'Forbidden: Invalid Ownership data']);
-                        exit;
-                    }
-                }
+            // Member session resolution - required for every request (mandatory, per design
+            // decision, independent of whether the requested object declares any ownership
+            // field). session_token is minted by auth/login.php and is fully decoupled from
+            // api_tokens (X-API-Key = which app/channel may be hit; session_token = which
+            // member is acting and what they own). Populates $GLOBALS['ownership_data'] with
+            // the member's ownership whitelist, read by _LindseyEngine's
+            // resolveReadOwnership()/resolveWriteOwnership() - a harmless no-op for any object
+            // that doesn't declare an 'ownership' field at all.
+            if (!isset($_SERVER['HTTP_SESSION_TOKEN']) || $_SERVER['HTTP_SESSION_TOKEN'] === '') {
+                http_response_code(401);
+                echo json_encode(['error' => 'session_token header missing']);
+                exit;
             }
+            $stmt = $auth_pdo->prepare("SELECT membership_id FROM membership_session WHERE session_token = ? AND expires_at > NOW()");
+            $stmt->execute([$_SERVER['HTTP_SESSION_TOKEN']]);
+            $session = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$session) {
+                http_response_code(401);
+                echo json_encode(['error' => 'Invalid or expired session_token']);
+                exit;
+            }
+            $stmt = $auth_pdo->prepare("SELECT scope_name, value FROM membership_ownership_value WHERE membership_id = ?");
+            $stmt->execute([$session['membership_id']]);
+            $ownership_data = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $ownership_data[$row['scope_name']][] = $row['value'];
+            }
+            $GLOBALS['ownership_data'] = $ownership_data;
 
             // validate the api channel allowed list
             if(!in_array($apiChannel['channel_name'], $channel_allowed_list)){

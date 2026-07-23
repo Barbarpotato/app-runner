@@ -10,7 +10,6 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     name VARCHAR(100) DEFAULT NULL,
     scopes ENUM('all', 'write', 'read') NOT NULL DEFAULT 'read',
     channel_list TEXT DEFAULT NULL,
-    ownership_data_binding JSON DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -18,6 +17,37 @@ CREATE TABLE IF NOT EXISTS user_login (
     id INT(11) AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) DEFAULT NULL,
     password VARCHAR(100) DEFAULT NULL
+);
+
+CREATE TABLE IF NOT EXISTS membership (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    member_identifier VARCHAR(100) NOT NULL,
+    label VARCHAR(150) DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_member_identifier (member_identifier)
+);
+
+CREATE TABLE IF NOT EXISTS membership_ownership_value (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    membership_id BIGINT NOT NULL,
+    scope_name VARCHAR(100) NOT NULL,
+    value VARCHAR(250) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_membership_scope_value (membership_id, scope_name, value),
+    KEY idx_scope_value (scope_name, value),
+    CONSTRAINT fk_membership_ownership_value_membership
+        FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS membership_session (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    membership_id BIGINT NOT NULL,
+    session_token VARCHAR(255) NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_membership_session_membership
+        FOREIGN KEY (membership_id) REFERENCES membership(id) ON DELETE CASCADE
 );
 
 INSERT INTO user_login (username, password) VALUES ('<admin_username>', '<admin_password_hash>');

@@ -52,28 +52,16 @@ class ApiTokensController {
             }
             $channel_list = isset($_POST['channel_list']) ? $_POST['channel_list'] : [];
 
-            // Build ownership_data_binding JSON from the hidden field populated by JS on submit
-            $ownership_data_binding = [];
-            if (!empty($_POST['ownership_data_binding_json'])) {
-                $decoded = json_decode($_POST['ownership_data_binding_json'], true);
-                if (is_array($decoded)) {
-                    $ownership_data_binding = $decoded;
-                }
-            }
-
             $data = [
                 'name' => $_POST['name'],
                 'scopes' => $_POST['scopes'],
-                'channel_list' => $channel_list,
-                'ownership_data_binding' => $ownership_data_binding
+                'channel_list' => $channel_list
             ];
             $apiTokenModel->update($id, $data);
             header('Location: ?action=api_tokens');
             exit;
         }
         $config = json_decode(file_get_contents(__DIR__ . '/../../Library/config.json'), true);
-        // Decode existing ownership_data_binding for the form
-        $existingBinding = json_decode($token['ownership_data_binding'] ?? '{}', true) ?: [];
         include __DIR__ . '/../view/api_tokens/edit.php';
     }
 

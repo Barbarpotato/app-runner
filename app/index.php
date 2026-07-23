@@ -50,6 +50,10 @@ if (isset($_SESSION['user'])) {
         include __DIR__ . '/controller/db_ide_controller.php';
         $controller = new DbIdeController();
         $method = $_GET['method'] ?? 'index';
+    } elseif ($action == 'membership') {
+        include __DIR__ . '/controller/membership_controller.php';
+        $controller = new MembershipController();
+        $method = $_GET['method'] ?? 'index';
     } else {
         include __DIR__ . '/controller/index_controller.php';
         $controller = new IndexController();
