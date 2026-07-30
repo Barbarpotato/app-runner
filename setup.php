@@ -208,6 +208,10 @@ function create_app($url = null){
             
                 // create the specs json file
                 $specs = $page['specs'];
+                if (is_string($specs)) {
+                    $specs = json_decode($specs, true);
+                }
+                $specs['allowed_roles'] = $page['allowed_roles'] ?? [];
                 $filename = 'channels/' . $channel_name . '/specs/' . pathinfo($specs['path'], PATHINFO_FILENAME) . '.json';
                 file_put_contents($filename, json_encode($specs));
             }

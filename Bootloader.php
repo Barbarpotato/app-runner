@@ -221,6 +221,10 @@ class Bootloader {
             }
             $GLOBALS['ownership_data'] = $ownership_data;
 
+            $stmt = $auth_pdo->prepare("SELECT role_name FROM membership_role WHERE membership_id = ?");
+            $stmt->execute([$session['membership_id']]);
+            $GLOBALS['membership_roles'] = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'role_name');
+
             // validate the api channel allowed list
             if(!in_array($apiChannel['channel_name'], $channel_allowed_list)){
                 http_response_code(403);
@@ -296,6 +300,21 @@ class Bootloader {
                     http_response_code(403);
                     echo json_encode(['error' => 'Forbidden: Read scope required for this endpoint']);
                     return;
+                }
+            }
+
+            //!!! dependent on the _setup_auth.txt
+            // Check allowed_roles (from the endpoint's spec, written by setup.php codegen)
+            if(1){
+                $specPath = 'channels/' . ltrim($baseUrl, '/') . '/specs/' . $endpoint . '.json';
+                if (file_exists($specPath)) {
+                    $endpointSpec = json_decode(file_get_contents($specPath), true);
+                    $allowedRoles = $endpointSpec['allowed_roles'] ?? [];
+                    if (!empty($allowedRoles) && empty(array_intersect($allowedRoles, $GLOBALS['membership_roles'] ?? []))) {
+                        http_response_code(403);
+                        echo json_encode(['error' => 'Forbidden: caller does not have a required role for this endpoint']);
+                        exit;
+                    }
                 }
             }
 

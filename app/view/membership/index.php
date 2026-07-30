@@ -28,6 +28,7 @@
                                         <th>Member Identifier</th>
                                         <th>Label</th>
                                         <th>Ownership Values</th>
+                                        <th>Roles</th>
                                         <th>Created At</th>
                                         <th>Actions</th>
                                     </tr>
@@ -35,7 +36,7 @@
                                 <tbody>
                                     <?php if (empty($memberships)): ?>
                                         <tr>
-                                            <td colspan="5" class="text-center">No memberships found.</td>
+                                            <td colspan="6" class="text-center">No memberships found.</td>
                                         </tr>
                                     <?php else: ?>
                                         <?php foreach ($memberships as $m): ?>
@@ -52,6 +53,15 @@
                                                                     <span class="value-tag"><?php echo htmlspecialchars($v); ?></span>
                                                                 <?php endforeach; ?>
                                                             </div>
+                                                        <?php endforeach; ?>
+                                                    <?php endif; ?>
+                                                </td>
+                                                <td>
+                                                    <?php if (empty($m['roles'])): ?>
+                                                        <span class="text-muted">&mdash;</span>
+                                                    <?php else: ?>
+                                                        <?php foreach ($m['roles'] as $r): ?>
+                                                            <span class="value-tag"><?php echo htmlspecialchars($r); ?></span>
                                                         <?php endforeach; ?>
                                                     <?php endif; ?>
                                                 </td>

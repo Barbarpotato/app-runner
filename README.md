@@ -79,9 +79,9 @@ Two independent, composable layers on every request through `Bootloader.php`:
 - **`X-API-Key`** (`api_tokens` table, auth DB) — which app/channel a caller may hit at all
   (`scopes`, `channel_list`). Unrelated to membership; unchanged by anything below.
 - **`session-token`** (`membership`/`membership_session` tables, auth DB) — which _member_ is
-  acting, and what ownership values they're allowed to touch. **Required on every request**
-  through `Bootloader.php`, regardless of whether the target object even declares an `ownership`
-  field.
+  acting, what ownership values they're allowed to touch, and what roles they hold. **Required on
+  every request** through `Bootloader.php`, regardless of whether the target object even declares
+  an `ownership` field or the target endpoint declares any `allowed_roles`.
 
 Full design and rationale: [docs/2026-07-23-membership-ownership-auth.md](docs/2026-07-23-membership-ownership-auth.md).
 
@@ -124,3 +124,29 @@ Missing or expired → `401`. `Bootloader.php` resolves the token to the member'
 whitelist (`membership_ownership_value`) and populates `$GLOBALS['ownership_data']` with it before
 the channel endpoint runs — see the QUERYBUILDER ownership docs above for how `get`/`_get`/`set`/
 `_set`/`delete`/`_delete` each consume that whitelist.
+
+## Role-gated endpoints
+
+Superlindey app.json can declare a per-channel role catalog (`channels[].roles`, e.g.
+`["operation", "spv operation"]`) and, per endpoint, `channels[].pages[].allowed_roles` — the
+subset of that catalog allowed to call it. Empty `allowed_roles` (the default for every existing
+endpoint) means no gate at all — unrestricted, same as before this feature existed.
+
+- **Codegen** (`setup.php`, `create_app()`) writes each page's `allowed_roles` into its
+  `channels/<channel>/specs/<endpoint>.json` alongside the rest of the spec — the only place this
+  value survives the `channels/`/`Library/` wipe-and-recompile on every `setup.php update`.
+- **Assignment** — roles are held per member, not per token: `membership_role` table (auth DB,
+  same shape as `membership_ownership_value` — `membership_id` + `role_name`). Managed from the
+  admin dashboard, `?action=membership` → Add/Edit Membership → **Roles** checkboxes (options =
+  union of every channel's declared `roles`).
+- **Enforcement** — in `Bootloader.php`, right after `$GLOBALS['ownership_data']` is populated,
+  membership's roles are loaded into `$GLOBALS['membership_roles']`. Just before the endpoint file
+  is `require`d, its spec's `allowed_roles` is read; if non-empty and disjoint from
+  `$GLOBALS['membership_roles']` → `403`. Centralized here (not in per-page endpoint code) because
+  page code is stamped verbatim from Superlindey and regenerated on every `update` — Bootloader is
+  hand-maintained and survives that.
+
+Requires the `membership_role` table to exist in the auth DB — present in
+`templates/_setup_auth.txt` for fresh installs; an existing instance provisioned before this
+feature needs the `CREATE TABLE` applied by hand (same as any other auth-DB schema change, see
+`docs/2026-07-23-membership-ownership-auth.md`'s schema section for precedent).

@@ -31,13 +31,20 @@ class Membership {
         return $grouped;
     }
 
-    public function create($member_identifier, $label, array $ownership_values) {
+    public function getRoles($membership_id) {
+        $stmt = $this->pdo->prepare("SELECT role_name FROM membership_role WHERE membership_id = ? ORDER BY role_name");
+        $stmt->execute([$membership_id]);
+        return array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'role_name');
+    }
+
+    public function create($member_identifier, $label, array $ownership_values, array $roles = []) {
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare("INSERT INTO membership (member_identifier, label) VALUES (?, ?)");
             $stmt->execute([$member_identifier, $label]);
             $id = $this->pdo->lastInsertId();
             $this->saveOwnershipValues($id, $ownership_values);
+            $this->saveRoles($id, $roles);
             $this->pdo->commit();
             return $id;
         } catch (Exception $e) {
@@ -46,7 +53,7 @@ class Membership {
         }
     }
 
-    public function update($id, $label, array $ownership_values) {
+    public function update($id, $label, array $ownership_values, array $roles = []) {
         $this->pdo->beginTransaction();
         try {
             $stmt = $this->pdo->prepare("UPDATE membership SET label = ? WHERE id = ?");
@@ -54,6 +61,9 @@ class Membership {
             $del = $this->pdo->prepare("DELETE FROM membership_ownership_value WHERE membership_id = ?");
             $del->execute([$id]);
             $this->saveOwnershipValues($id, $ownership_values);
+            $del = $this->pdo->prepare("DELETE FROM membership_role WHERE membership_id = ?");
+            $del->execute([$id]);
+            $this->saveRoles($id, $roles);
             $this->pdo->commit();
         } catch (Exception $e) {
             $this->pdo->rollBack();
@@ -69,6 +79,15 @@ class Membership {
                 if ($value === '') continue;
                 $stmt->execute([$membership_id, $scope_name, $value]);
             }
+        }
+    }
+
+    private function saveRoles($membership_id, array $roles) {
+        $stmt = $this->pdo->prepare("INSERT INTO membership_role (membership_id, role_name) VALUES (?, ?)");
+        foreach (array_unique($roles) as $role_name) {
+            $role_name = trim((string) $role_name);
+            if ($role_name === '') continue;
+            $stmt->execute([$membership_id, $role_name]);
         }
     }
 

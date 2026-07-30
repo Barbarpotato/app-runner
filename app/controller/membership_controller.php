@@ -28,6 +28,19 @@ class MembershipController {
         return $scopes;
     }
 
+    // union of every channel's declared roles catalog (config.json channels[].roles),
+    // e.g. ["operation", "spv operation"] on the "client" channel.
+    private function getAllRoles() {
+        $config = json_decode(file_get_contents(__DIR__ . '/../../Library/config.json'), true);
+        $roles = [];
+        foreach ($config['channels'] ?? [] as $channel) {
+            foreach ($channel['roles'] ?? [] as $role) {
+                $roles[$role] = true;
+            }
+        }
+        return array_keys($roles);
+    }
+
     // object_ref/enum values must match one of the scope's real domain (suggestions);
     // free_text is unrestricted. Returns an array of error strings, empty if all valid.
     private function validateOwnershipValues(array $scopes, array $ownership_values) {
@@ -51,6 +64,7 @@ class MembershipController {
         $memberships = $membershipModel->getAll();
         foreach ($memberships as &$m) {
             $m['ownership_values'] = $membershipModel->getOwnershipValues($m['id']);
+            $m['roles'] = $membershipModel->getRoles($m['id']);
         }
         unset($m);
         include __DIR__ . '/../view/membership/index.php';
@@ -67,17 +81,20 @@ class MembershipController {
                 $decoded = json_decode($_POST['ownership_values_json'], true);
                 if (is_array($decoded)) $ownership_values = $decoded;
             }
+            $roles = array_filter((array) ($_POST['roles'] ?? []));
             $scopes = $this->getScopesWithSuggestions();
             $validationErrors = $this->validateOwnershipValues($scopes, $ownership_values);
             if (!empty($validationErrors)) {
                 $error = implode(' ', $validationErrors);
                 $existingOwnership = $ownership_values;
+                $existingRoles = $roles;
+                $allRoles = $this->getAllRoles();
                 include __DIR__ . '/../view/membership/add.php';
                 return;
             }
             $membershipModel = new Membership();
             try {
-                $membershipModel->create(trim($_POST['member_identifier'] ?? ''), trim($_POST['label'] ?? ''), $ownership_values);
+                $membershipModel->create(trim($_POST['member_identifier'] ?? ''), trim($_POST['label'] ?? ''), $ownership_values, $roles);
                 header('Location: ?action=membership');
                 exit;
             } catch (Exception $e) {
@@ -85,6 +102,8 @@ class MembershipController {
                     ? 'This member_identifier already has a membership.'
                     : 'Failed to create membership.';
                 $existingOwnership = $ownership_values;
+                $existingRoles = $roles;
+                $allRoles = $this->getAllRoles();
                 include __DIR__ . '/../view/membership/add.php';
                 return;
             }
@@ -92,6 +111,8 @@ class MembershipController {
 
         $scopes = $this->getScopesWithSuggestions();
         $existingOwnership = [];
+        $existingRoles = [];
+        $allRoles = $this->getAllRoles();
         include __DIR__ . '/../view/membership/add.php';
     }
 
@@ -118,21 +139,26 @@ class MembershipController {
                 $decoded = json_decode($_POST['ownership_values_json'], true);
                 if (is_array($decoded)) $ownership_values = $decoded;
             }
+            $roles = array_filter((array) ($_POST['roles'] ?? []));
             $scopes = $this->getScopesWithSuggestions();
             $validationErrors = $this->validateOwnershipValues($scopes, $ownership_values);
             if (!empty($validationErrors)) {
                 $error = implode(' ', $validationErrors);
                 $existingOwnership = $ownership_values;
+                $existingRoles = $roles;
+                $allRoles = $this->getAllRoles();
                 include __DIR__ . '/../view/membership/edit.php';
                 return;
             }
-            $membershipModel->update($id, trim($_POST['label'] ?? ''), $ownership_values);
+            $membershipModel->update($id, trim($_POST['label'] ?? ''), $ownership_values, $roles);
             header('Location: ?action=membership');
             exit;
         }
 
         $scopes = $this->getScopesWithSuggestions();
         $existingOwnership = $membershipModel->getOwnershipValues($id);
+        $existingRoles = $membershipModel->getRoles($id);
+        $allRoles = $this->getAllRoles();
         include __DIR__ . '/../view/membership/edit.php';
     }
 

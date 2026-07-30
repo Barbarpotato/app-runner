@@ -93,7 +93,18 @@
                                 <?php endif; ?>
                             </div>
                             <?php endforeach; ?>
-                            <div class="d-flex justify-content-between">
+                            <hr>
+                            <h6>Roles</h6>
+                            <?php if (empty($allRoles)): ?>
+                                <p class="text-muted">No roles declared in any channel (<code>channels[].roles</code> is empty).</p>
+                            <?php endif; ?>
+                            <?php foreach ($allRoles as $role): ?>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="roles[]" value="<?php echo htmlspecialchars($role); ?>" id="role_<?php echo htmlspecialchars($role); ?>" <?php echo in_array($role, $existingRoles ?? [], true) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="role_<?php echo htmlspecialchars($role); ?>"><?php echo htmlspecialchars($role); ?></label>
+                            </div>
+                            <?php endforeach; ?>
+                            <div class="d-flex justify-content-between mt-3">
                                 <a href="?action=membership" class="btn btn-secondary">
                                     <i class="fas fa-arrow-left me-1"></i>Back
                                 </a>
